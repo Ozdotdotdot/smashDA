@@ -51,9 +51,9 @@ def search(
     ),
     limit: int = Query(
         25,
-        ge=1,
+        ge=0,
         le=200,
-        description="Maximum number of player records to return.",
+        description="Maximum number of player records to return (0 = all).",
     ),
 ) -> Dict[str, Any]:
     """
@@ -75,7 +75,11 @@ def search(
     except Exception as exc:  # pragma: no cover - protective circuit
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
-    records: List[Dict[str, Any]] = df.head(limit).to_dict(orient="records")
+    if limit == 0:
+        limited_df = df
+    else:
+        limited_df = df.head(limit)
+    records: List[Dict[str, Any]] = limited_df.to_dict(orient="records")
     return {
         "state": state,
         "character": character,

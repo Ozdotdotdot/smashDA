@@ -84,6 +84,84 @@ I may move this section to its own documentation if I add more functionality.
 - Raw GraphQL responses are no longer cached as JSON when the SQLite store is enabled. If you need the old behavior (e.g., for debugging schema changes), pass `use_store=False` or `use_cache=True` explicitly to `generate_player_metrics` to re-enable the hashed `.cache/startgg/*.json` snapshots (those still auto-refresh every seven days and archive the previous payload).
 - Location attribution got more robust: we now infer a `home_state` only when at least three events with known states exist and one state accounts for ≥60% of them. Tournaments also record `addrCountry`, so we expose `home_country`/confidence columns alongside the state fields. Use these when filtering travelers vs. locals or when exploring regions outside the US.
 
+## API usage
+
+The FastAPI service in `api.py` exposes the same metrics over HTTP. Run it locally or on a Tailscale-accessible machine with:
+
+```bash
+uvicorn api:app --host 0.0.0.0 --port 8000
+```
+
+### Endpoints
+
+- `GET /health` – returns `{"ok": true}`; useful for load balancers and tunnels.
+- `GET /search` – runs the analytics pipeline and returns the top N player rows.
+
+#### Query parameters for `/search`
+
+| Param | Required | Description |
+| ----- | -------- | ----------- |
+| `state` | yes | Two-letter region to discover tournaments (e.g., `GA`). |
+| `months_back` | optional, default `6` | Rolling discovery window. |
+| `videogame_id` | optional, default `1386` | start.gg game ID (`1386` Ultimate, `1` Melee). |
+| `limit` | optional, default `25` | Maximum rows to return (`0` returns all rows). |
+| `assume_target_main` | optional, default `false` | Backfill character stats when sets are missing. |
+| `character` | optional, default `"Marth"` | Legacy field; leave at default if you only care about overall stats. |
+
+Example: pull three months of Georgia data and keep the top 50 rows.
+
+```bash
+curl -G \
+  --data-urlencode "state=GA" \
+  --data-urlencode "months_back=3" \
+  --data-urlencode "limit=50" \
+  http://localhost:8000/search
+```
+
+Response shape:
+
+```json
+{
+  "state": "GA",
+  "character": "Marth",
+  "count": 50,
+  "results": [
+    {
+      "gamer_tag": "PlayerOne",
+      "events_played": 12,
+      "sets_played": 64,
+      "weighted_win_rate": 0.73,
+      "opponent_strength": 0.18,
+      "avg_event_entrants": 84,
+      "large_event_share": 0.42,
+      "home_state": "GA",
+      "home_state_inferred": false,
+      "...": "additional columns omitted"
+    }
+  ]
+}
+```
+
+The `results` array mirrors the DataFrame printed by `run_report.py`, so every column is available for plotting in notebooks or front-ends. The most useful axes for dot plots are:
+
+- `weighted_win_rate` – combines win rate, event size, and recency. Higher means stronger recent performance.
+- `opponent_strength` – average of `1/opponent_seed` (or placement) to approximate strength of schedule.
+- `avg_event_entrants`, `max_event_entrants`, `large_event_share` – contextualize bracket size.
+- `activity_score`, `events_played`, `sets_played` – show consistency and recent volume.
+
+### Consuming from notebooks/UI
+
+You can point pandas at the API without re-downloading tournaments locally:
+
+```python
+import pandas as pd
+
+resp = pd.read_json("http://switch-tailscale-ip:8000/search?state=GA&months_back=3")
+df = pd.DataFrame(resp["results"])
+```
+
+At that point you can filter by weighted win rate or opponent strength exactly like you would with the CLI DataFrame, but every device shares the same SQLite-backed cache.
+
 ## Development tips
 
 - Respect start.gg rate limits; the built-in caching is there to keep repeated runs fast.
