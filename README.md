@@ -105,8 +105,16 @@ uvicorn api:app --host 0.0.0.0 --port 8000
 | `months_back` | optional, default `6` | Rolling discovery window. |
 | `videogame_id` | optional, default `1386` | start.gg game ID (`1386` Ultimate, `1` Melee). |
 | `limit` | optional, default `25` | Maximum rows to return (`0` returns all rows). |
+| `large_event_threshold` | optional, default `32` | Entrant count that defines “large” when computing shares. |
 | `assume_target_main` | optional, default `false` | Backfill character stats when sets are missing. |
 | `character` | optional, default `"Marth"` | Legacy field; leave at default if you only care about overall stats. |
+| `filter_state` | optional, repeatable | Keep players whose `home_state` matches any provided code. |
+| `min_entrants` / `max_entrants` | optional | Filter by average event entrants. |
+| `min_max_event_entrants` | optional | Require the player’s largest event to clear a threshold. |
+| `min_large_event_share` | optional | Require at least this fraction of events to be “large” (`0.0–1.0`). |
+| `start_after` | optional | ISO date (`YYYY-MM-DD`) that the player’s latest event must be on/after. |
+
+`filter_state` can be repeated (`...&filter_state=GA&filter_state=AL`) to allow multiple regions.
 
 Example: pull three months of Georgia data and keep the top 50 rows.
 
@@ -115,6 +123,19 @@ curl -G \
   --data-urlencode "state=GA" \
   --data-urlencode "months_back=3" \
   --data-urlencode "limit=50" \
+  http://localhost:8000/search
+```
+
+Example with filters (two allowed home states, min entrant constraints, and unlimited rows):
+
+```bash
+curl -G \
+  --data-urlencode "state=GA" \
+  --data-urlencode "months_back=3" \
+  --data-urlencode "limit=0" \
+  --data-urlencode "filter_state=GA" \
+  --data-urlencode "filter_state=AL" \
+  --data-urlencode "min_entrants=32" \
   http://localhost:8000/search
 ```
 

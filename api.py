@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import os
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from fastapi import FastAPI, HTTPException, Query
 
@@ -49,11 +50,45 @@ def search(
         False,
         description="Treat the target character as a main when set data is missing.",
     ),
+    large_event_threshold: int = Query(
+        32,
+        ge=1,
+        description="Entrant count that defines a 'large' event for share filters.",
+    ),
     limit: int = Query(
         25,
         ge=0,
         le=200,
         description="Maximum number of player records to return (0 = all).",
+    ),
+    filter_state: Optional[List[str]] = Query(
+        None,
+        description="Repeatable filter that keeps players whose home_state matches one of the provided codes.",
+    ),
+    min_entrants: Optional[int] = Query(
+        None,
+        ge=0,
+        description="Minimum average event entrants.",
+    ),
+    max_entrants: Optional[int] = Query(
+        None,
+        ge=0,
+        description="Maximum average event entrants.",
+    ),
+    min_max_event_entrants: Optional[int] = Query(
+        None,
+        ge=0,
+        description="Minimum entrants for a player's largest single event.",
+    ),
+    min_large_event_share: Optional[float] = Query(
+        None,
+        ge=0.0,
+        le=1.0,
+        description="Minimum fraction of events that meet the large-event threshold.",
+    ),
+    start_after: Optional[str] = Query(
+        None,
+        description="Only include players whose latest event started on or after this date (YYYY-MM-DD).",
     ),
 ) -> Dict[str, Any]:
     """
@@ -71,9 +106,42 @@ def search(
             target_character=character,
             assume_target_main=assume_target_main,
             store_path=_get_store_path(),
+            large_event_threshold=large_event_threshold,
         )
     except Exception as exc:  # pragma: no cover - protective circuit
         raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    if filter_state:
+        allowed = {code.upper() for code in filter_state if code}
+        if allowed and "home_state" in df.columns:
+            state_series = df["home_state"].fillna("").str.upper()
+            df = df[state_series.isin(allowed)]
+
+    if min_entrants is not None and "avg_event_entrants" in df.columns:
+        df = df[df["avg_event_entrants"].fillna(0) >= min_entrants]
+
+    if max_entrants is not None and "avg_event_entrants" in df.columns:
+        df = df[df["avg_event_entrants"].fillna(0) <= max_entrants]
+
+    if min_max_event_entrants is not None and "max_event_entrants" in df.columns:
+        df = df[df["max_event_entrants"].fillna(0) >= min_max_event_entrants]
+
+    if (
+        min_large_event_share is not None
+        and "large_event_share" in df.columns
+    ):
+        df = df[df["large_event_share"].fillna(0) >= min_large_event_share]
+
+    if start_after:
+        try:
+            cutoff = datetime.fromisoformat(start_after).replace(tzinfo=timezone.utc)
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid start_after date '{start_after}'. Expected YYYY-MM-DD.",
+            ) from exc
+        cutoff_ts = int(cutoff.timestamp())
+        df = df[df["latest_event_start"].fillna(0) >= cutoff_ts]
 
     if limit == 0:
         limited_df = df
