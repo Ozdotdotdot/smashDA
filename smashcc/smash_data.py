@@ -12,6 +12,7 @@ from __future__ import annotations
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
+import time
 from typing import Dict, Iterable, List, Optional
 
 from .datastore import SQLiteStore
@@ -173,33 +174,43 @@ def _paginate_event_field(
       }}
     }}
     """
-    results: List[Dict] = []
-    page = 1
-    total_pages: Optional[int] = None
+    min_per_page = 5
+    current_per_page = max(min_per_page, per_page)
 
     while True:
-        payload = client.execute(
-            query,
-            {"eventId": event_id, "page": page, "perPage": per_page},
-        )
-        event = payload.get("event") or {}
-        if not event:
-            break
+        results: List[Dict] = []
+        page = 1
+        total_pages: Optional[int] = None
+        try:
+            while True:
+                payload = client.execute(
+                    query,
+                    {"eventId": event_id, "page": page, "perPage": current_per_page},
+                )
+                event = payload.get("event") or {}
+                if not event:
+                    break
 
-        field_name = next(iter(event.keys()))
-        container = event[field_name] or {}
-        nodes: Iterable[Dict] = container.get("nodes") or []
-        results.extend(nodes)
+                field_name = next(iter(event.keys()))
+                container = event[field_name] or {}
+                nodes: Iterable[Dict] = container.get("nodes") or []
+                results.extend(nodes)
 
-        page_info = container.get("pageInfo") or {}
-        total_pages = total_pages or page_info.get("totalPages") or 1
+                page_info = container.get("pageInfo") or {}
+                total_pages = total_pages or page_info.get("totalPages") or 1
 
-        if page >= total_pages:
-            break
+                if page >= total_pages:
+                    break
 
-        page += 1
-
-    return results
+                page += 1
+        except RuntimeError as exc:
+            message = str(exc).lower()
+            if "query complexity is too high" in message and current_per_page > min_per_page:
+                current_per_page = max(min_per_page, current_per_page // 2)
+                time.sleep(1)
+                continue
+            raise
+        return results
 
 
 def fetch_event_seeds(client: StartGGClient, event_id: int, per_page: int = 50) -> List[Dict]:
@@ -238,7 +249,12 @@ def fetch_event_standings(client: StartGGClient, event_id: int, per_page: int = 
       }
     }
     """
-    return _paginate_event_field(client, event_id, field_fragment, per_page=per_page)
+    return _paginate_event_field(
+        client,
+        event_id,
+        field_fragment,
+        per_page=per_page,
+    )
 
 
 def fetch_event_sets(client: StartGGClient, event_id: int, per_page: int = 15) -> List[Dict]:
@@ -293,7 +309,12 @@ def fetch_event_sets(client: StartGGClient, event_id: int, per_page: int = 15) -
       }}
     }}
     """
-    return _paginate_event_field(client, event_id, field_fragment, per_page=per_page)
+    return _paginate_event_field(
+        client,
+        event_id,
+        field_fragment,
+        per_page=per_page,
+    )
 
 
 def fetch_phase_seeds(client: StartGGClient, phase_id: int, per_page: int = 50) -> List[Dict]:
