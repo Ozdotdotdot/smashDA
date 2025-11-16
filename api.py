@@ -10,6 +10,7 @@ from typing import Any, Dict, List, Optional
 from fastapi import FastAPI, HTTPException, Query
 
 from smashcc.analysis import generate_player_metrics
+from smashcc.datastore import SQLiteStore
 
 app = FastAPI(
     title="Smash Character Competency API",
@@ -26,10 +27,79 @@ def _get_store_path() -> Path:
     return Path(override).expanduser() if override else DEFAULT_STORE_PATH
 
 
+def _load_precomputed_metrics(
+    *,
+    state: str,
+    months_back: int,
+    videogame_id: int,
+    target_character: str,
+    limit: Optional[int] = None,
+) -> List[Dict[str, Any]]:
+    """Fetch persisted metric rows for the requested parameters."""
+    store = SQLiteStore(_get_store_path())
+    try:
+        return store.load_player_metrics(
+            state=state,
+            videogame_id=videogame_id,
+            months_back=months_back,
+            target_character=target_character,
+            limit=limit,
+        )
+    finally:
+        store.close()
+
+
 @app.get("/health")
 def health() -> Dict[str, bool]:
     """Simple liveness endpoint."""
     return {"ok": True}
+
+
+@app.get("/precomputed")
+def precomputed_metrics(
+    state: str = Query(..., description="Two-letter region/state code."),
+    months_back: int = Query(
+        6,
+        ge=1,
+        le=24,
+        description="Rolling window the metrics were generated with.",
+    ),
+    videogame_id: int = Query(
+        1386,
+        description="start.gg videogame identifier (Ultimate = 1386, Melee = 1).",
+    ),
+    character: str = Query(
+        "Marth",
+        description="Character emphasis used when precomputing metrics.",
+    ),
+    limit: int = Query(
+        50,
+        ge=1,
+        le=500,
+        description="Maximum number of player rows to return.",
+    ),
+) -> Dict[str, Any]:
+    """Serve precomputed weighted win rate/opponent strength rows from SQLite."""
+    rows = _load_precomputed_metrics(
+        state=state,
+        months_back=months_back,
+        videogame_id=videogame_id,
+        target_character=character,
+        limit=limit,
+    )
+    if not rows:
+        raise HTTPException(
+            status_code=404,
+            detail="No precomputed metrics found for the requested parameters.",
+        )
+    return {
+        "state": state,
+        "character": character,
+        "months_back": months_back,
+        "videogame_id": videogame_id,
+        "count": len(rows),
+        "results": rows,
+    }
 
 
 @app.get("/search")

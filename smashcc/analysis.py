@@ -120,7 +120,57 @@ def generate_character_report(
     return filtered
 
 
+def precompute_state_metrics(
+    state: str,
+    *,
+    months_back: int = 6,
+    videogame_id: int = 1386,
+    target_character: str = "Marth",
+    assume_target_main: bool = False,
+    store_path: Optional[Path] = None,
+    large_event_threshold: int = 32,
+) -> int:
+    """
+    Compute metrics for a single state and persist weighted win rate/opponent strength.
+
+    Returns the number of player rows written to the store.
+    """
+    df = generate_player_metrics(
+        state=state,
+        months_back=months_back,
+        videogame_id=videogame_id,
+        target_character=target_character,
+        assume_target_main=assume_target_main,
+        store_path=store_path,
+        large_event_threshold=large_event_threshold,
+    )
+    if df.empty:
+        return 0
+
+    records = df[
+        [
+            "player_id",
+            "gamer_tag",
+            "weighted_win_rate",
+            "opponent_strength",
+        ]
+    ].to_dict(orient="records")
+    store = SQLiteStore(store_path)
+    try:
+        store.replace_player_metrics(
+            state=state,
+            videogame_id=videogame_id,
+            months_back=months_back,
+            target_character=target_character,
+            rows=records,
+        )
+    finally:
+        store.close()
+    return len(records)
+
+
 __all__ = [
     "generate_player_metrics",
     "generate_character_report",
+    "precompute_state_metrics",
 ]

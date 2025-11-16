@@ -76,6 +76,27 @@ Use the average entrant filters when you care about overall bracket size, `--min
 
 I may move this section to its own documentation if I add more functionality.
 
+## Precomputing metrics for the API
+
+If you want the FastAPI service to serve instant responses, persist a trimmed set of metrics (weighted win rate + opponent strength) into SQLite ahead of time:
+
+```bash
+python precompute_metrics.py --all-states --months-back 6 --character Marth
+```
+
+The script pulls every state already present in the `.cache/startgg/smash.db` `tournaments` table and recomputes metrics offline by using the cached seeds/standings/sets. Pass `--state GA --state FL` if you only want a subset. New rows live in the `player_metrics` table with a timestamp so you can refresh on a schedule or cron job.
+
+Once the table is populated the API exposes a lightweight endpoint that never hits start.gg:
+
+```bash
+curl -G \
+  --data-urlencode "state=GA" \
+  --data-urlencode "character=Marth" \
+  http://localhost:8000/precomputed
+```
+
+Parameters mirror the CLI flags (`state`, `months_back`, `videogame_id`, `character`, and `limit`). The response is a compact list of `{player_id, gamer_tag, weighted_win_rate, opponent_strength}` rows suitable for sending to browsers so each visitor can filter/plot locally without re-running the expensive pipeline.
+
 ## Working with the metrics elsewhere
 
 - Import `generate_player_metrics` or `generate_character_report` directly to consume DataFrames in notebooks or other scripts.
@@ -95,6 +116,7 @@ uvicorn api:app --host 0.0.0.0 --port 8000
 ### Endpoints
 
 - `GET /health` – returns `{"ok": true}`; useful for load balancers and tunnels.
+- `GET /precomputed` – serves cached weighted win rate/opponent strength rows (see above section).
 - `GET /search` – runs the analytics pipeline and returns the top N player rows.
 
 #### Query parameters for `/search`

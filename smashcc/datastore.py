@@ -13,7 +13,7 @@ import json
 import sqlite3
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Dict, Iterable, List, Optional
+from typing import Any, Dict, Iterable, List, Optional
 
 
 class SQLiteStore:
@@ -93,6 +93,22 @@ class SQLiteStore:
                 last_synced INTEGER NOT NULL,
                 FOREIGN KEY (event_id) REFERENCES events(id) ON DELETE CASCADE
             );
+
+            CREATE TABLE IF NOT EXISTS player_metrics (
+                state TEXT NOT NULL,
+                videogame_id INTEGER NOT NULL,
+                months_back INTEGER NOT NULL,
+                target_character TEXT NOT NULL,
+                player_id INTEGER NOT NULL,
+                gamer_tag TEXT,
+                weighted_win_rate REAL,
+                opponent_strength REAL,
+                computed_at INTEGER NOT NULL,
+                PRIMARY KEY (state, videogame_id, months_back, target_character, player_id)
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_player_metrics_state
+              ON player_metrics(state, videogame_id, months_back, target_character);
             """
         )
         self.conn.commit()
@@ -317,3 +333,131 @@ class SQLiteStore:
             "standings": json.loads(row["standings_json"]),
             "sets": json.loads(row["sets_json"]),
         }
+
+    # --------------------------------------------------------------------- #
+    # Precomputed player metrics
+    # --------------------------------------------------------------------- #
+
+    def list_states_with_data(self, videogame_id: int) -> List[str]:
+        """Return sorted list of distinct tournament states for the given game."""
+        rows = self.conn.execute(
+            """
+            SELECT DISTINCT state
+              FROM tournaments
+             WHERE videogame_id = ?
+               AND state IS NOT NULL
+               AND TRIM(state) != ''
+             ORDER BY state ASC
+            """,
+            (int(videogame_id),),
+        ).fetchall()
+        return [row["state"].upper() for row in rows]
+
+    def replace_player_metrics(
+        self,
+        *,
+        state: str,
+        videogame_id: int,
+        months_back: int,
+        target_character: str,
+        rows: Iterable[Dict],
+    ) -> None:
+        """Replace the stored player metrics for a state with the provided rows."""
+        now_ts = int(datetime.now(timezone.utc).timestamp())
+        normalized_state = state.upper()
+        normalized_character = target_character or "Marth"
+        with self.conn:
+            self.conn.execute(
+                """
+                DELETE FROM player_metrics
+                      WHERE state = ?
+                        AND videogame_id = ?
+                        AND months_back = ?
+                        AND target_character = ?
+                """,
+                (
+                    normalized_state,
+                    int(videogame_id),
+                    int(months_back),
+                    normalized_character,
+                ),
+            )
+            if not rows:
+                return
+            self.conn.executemany(
+                """
+                INSERT INTO player_metrics(
+                    state,
+                    videogame_id,
+                    months_back,
+                    target_character,
+                    player_id,
+                    gamer_tag,
+                    weighted_win_rate,
+                    opponent_strength,
+                    computed_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                [
+                    (
+                        normalized_state,
+                        int(videogame_id),
+                        int(months_back),
+                        normalized_character,
+                        int(row.get("player_id")),
+                        row.get("gamer_tag"),
+                        row.get("weighted_win_rate"),
+                        row.get("opponent_strength"),
+                        now_ts,
+                    )
+                    for row in rows
+                ],
+            )
+
+    def load_player_metrics(
+        self,
+        *,
+        state: str,
+        videogame_id: int,
+        months_back: int,
+        target_character: str,
+        limit: Optional[int] = None,
+    ) -> List[Dict]:
+        """Return persisted player metrics sorted by weighted win rate."""
+        query = """
+            SELECT player_id,
+                   gamer_tag,
+                   weighted_win_rate,
+                   opponent_strength,
+                   computed_at
+              FROM player_metrics
+             WHERE state = ?
+               AND videogame_id = ?
+               AND months_back = ?
+               AND target_character = ?
+             ORDER BY (weighted_win_rate IS NULL),
+                      weighted_win_rate DESC,
+                      (opponent_strength IS NULL),
+                      opponent_strength DESC
+        """
+        params: List[Any] = [
+            state.upper(),
+            int(videogame_id),
+            int(months_back),
+            target_character,
+        ]
+        if limit is not None and limit > 0:
+            query += " LIMIT ?"
+            params.append(int(limit))
+        rows = self.conn.execute(query, params).fetchall()
+        return [
+            {
+                "player_id": row["player_id"],
+                "gamer_tag": row["gamer_tag"],
+                "weighted_win_rate": row["weighted_win_rate"],
+                "opponent_strength": row["opponent_strength"],
+                "computed_at": row["computed_at"],
+            }
+            for row in rows
+        ]
