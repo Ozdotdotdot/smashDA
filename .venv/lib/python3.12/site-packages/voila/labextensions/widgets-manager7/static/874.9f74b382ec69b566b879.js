@@ -1,1 +1,0 @@
-"use strict";(self.webpackChunk_voila_dashboards_widgets_manager7=self.webpackChunk_voila_dashboards_widgets_manager7||[]).push([[874],{9874:(a,s,e)=>{e.d(s,{A:()=>_});const _="1.5.0"}}]);
