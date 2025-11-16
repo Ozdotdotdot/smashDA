@@ -25,6 +25,8 @@ def generate_player_metrics(
     use_store: bool = True,
     store_path: Optional[Path] = None,
     large_event_threshold: int = 32,
+    window_offset_months: int = 0,
+    window_size_months: Optional[int] = None,
 ) -> pd.DataFrame:
     """
     Run the full data pipeline and return a DataFrame with per-player metrics.
@@ -55,6 +57,8 @@ def generate_player_metrics(
         state=state,
         videogame_id=videogame_id,
         months_back=months_back,
+        window_offset=window_offset_months,
+        window_size=window_size_months,
     )
     try:
         tournaments = fetch_recent_tournaments(client, filt, store=store)
@@ -85,6 +89,8 @@ def generate_character_report(
     use_store: bool = True,
     store_path: Optional[Path] = None,
     large_event_threshold: int = 32,
+    window_offset_months: int = 0,
+    window_size_months: Optional[int] = None,
 ) -> pd.DataFrame:
     """
     Backwards-compatible wrapper that filters the metrics DataFrame to players
@@ -100,6 +106,8 @@ def generate_character_report(
         use_store=use_store,
         store_path=store_path,
         large_event_threshold=large_event_threshold,
+        window_offset_months=window_offset_months,
+        window_size_months=window_size_months,
     )
     if df.empty or character is None:
         return df
@@ -129,6 +137,8 @@ def precompute_state_metrics(
     assume_target_main: bool = False,
     store_path: Optional[Path] = None,
     large_event_threshold: int = 32,
+    window_offset_months: int = 0,
+    window_size_months: Optional[int] = None,
 ) -> int:
     """
     Compute metrics for a single state and persist weighted win rate/opponent strength.
@@ -143,6 +153,8 @@ def precompute_state_metrics(
         assume_target_main=assume_target_main,
         store_path=store_path,
         large_event_threshold=large_event_threshold,
+        window_offset_months=window_offset_months,
+        window_size_months=window_size_months,
     )
     if df.empty:
         return 0

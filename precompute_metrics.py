@@ -56,6 +56,17 @@ def main() -> None:
         help="Rolling tournament window (in months) used when computing metrics.",
     )
     parser.add_argument(
+        "--window-offset",
+        type=int,
+        default=0,
+        help="Shift the window this many months into the past (0 = latest window).",
+    )
+    parser.add_argument(
+        "--window-size",
+        type=int,
+        help="Override the window length (months). Defaults to --months-back.",
+    )
+    parser.add_argument(
         "--character",
         default="Marth",
         help="Character to emphasise when deriving metrics.",
@@ -106,6 +117,8 @@ def main() -> None:
             assume_target_main=args.assume_target_main,
             store_path=store_path,
             large_event_threshold=args.large_event_threshold,
+            window_offset_months=args.window_offset,
+            window_size_months=args.window_size,
         )
         print(f"    Stored {row_count} players for {state}.")
         processed += 1

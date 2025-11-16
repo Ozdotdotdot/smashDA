@@ -63,6 +63,8 @@ Note: values vary depending on the tournaments in scope.
 - `--character`: Target character for usage/weighted metrics (default `Marth`).
 - `--videogame-id`: start.gg videogame identifier (Ultimate = `1386`).
 - `--months-back`: Rolling tournament discovery window (default `6`).
+- `--window-offset`: Shift the window into the past without changing its size (e.g., `--window-size 1 --window-offset 2` fetches tournaments from 2–3 months ago so you can warm the cache chunk-by-chunk).
+- `--window-size`: Override the window length in months (defaults to `--months-back`). Pair with `--window-offset` to iterate through month slices.
 - `--assume-target-main`: When a player has zero logged sets for the character, treat the target character as their main (assigns win rates from overall performance).
 - `--filter-state`: Include only players whose home state (explicit or inferred) matches one of the provided codes. Repeat the flag to allow multiple states.
 - `--min-entrants` / `--max-entrants`: Restrict players based on the average size of their events.
@@ -96,6 +98,21 @@ curl -G \
 ```
 
 Parameters mirror the CLI flags (`state`, `months_back`, `videogame_id`, `character`, and `limit`). The response is a compact list of `{player_id, gamer_tag, weighted_win_rate, opponent_strength}` rows suitable for sending to browsers so each visitor can filter/plot locally without re-running the expensive pipeline.
+
+### Warming specific months
+
+If a bulk precompute run fails for a couple of states, run the CLI in month-sized slices to make sure SQLite contains the missing tournaments before retrying the precompute script:
+
+```bash
+# Fill just the window from 2–3 months ago for MA, MD, and MO.
+python run_report.py MA --window-size 1 --window-offset 2 --months-back 3 --limit 0
+python run_report.py MD --window-size 1 --window-offset 2 --months-back 3 --limit 0
+python run_report.py MO --window-size 1 --window-offset 2 --months-back 3 --limit 0
+```
+
+Each invocation updates the local `.cache/startgg/smash.db` store without committing the generated CSV; afterwards `python precompute_metrics.py --state MA --state MD --state MO --months-back 3` will reuse that cache and finish instantly. Use different offsets (`0` = newest month, `1` = 1–2 months ago, etc.) to backfill whichever slices you missed.
+
+`precompute_metrics.py` accepts the same `--window-size`/`--window-offset` flags, so if you really only need a historical slice in the database you can compute and persist it directly without touching the live window.
 
 ## Working with the metrics elsewhere
 

@@ -53,6 +53,21 @@ class TournamentFilter:
     videogame_id: int = 1386  # Ultimate by default
     months_back: int = 6
     per_page: int = 50
+    window_offset: int = 0
+    window_size: Optional[int] = None
+
+    def window_months(self) -> int:
+        """Return the number of months covered by the window."""
+        span = self.window_size or self.months_back
+        return max(1, int(span))
+
+    def window_bounds(self) -> tuple[int, int]:
+        """Return (start_ts, end_ts) unix timestamps for the desired window."""
+        offset = max(0, int(self.window_offset))
+        now = datetime.now(timezone.utc)
+        window_end = now - timedelta(days=30 * offset)
+        window_start = window_end - timedelta(days=30 * self.window_months())
+        return int(window_start.timestamp()), int(window_end.timestamp())
 
 
 class StartGGClient:
@@ -138,11 +153,10 @@ class StartGGClient:
         self, filt: TournamentFilter
     ) -> Iterator[Dict]:
         """
-        Yield tournaments in the requested state/video game that started
-        within the last `months_back` months, sorted newest → oldest.
+        Yield tournaments in the requested state/video game that fall within
+        the requested window (supports offsets for backfilling older months).
         """
-        cutoff = datetime.now(timezone.utc) - timedelta(days=30 * filt.months_back)
-        cutoff_unix = int(cutoff.timestamp())
+        window_start, window_end = filt.window_bounds()
         page = 1
 
         query = """
@@ -186,18 +200,19 @@ class StartGGClient:
             if not nodes:
                 break
 
-            seen_newer = False
+            reached_older = False
             for node in nodes:
                 if node.get("addrCountry") is None:
                     node["addrCountry"] = node.get("countryCode")
                 start_at = node.get("startAt") or 0
-                if start_at >= cutoff_unix:
-                    seen_newer = True
-                    yield node
-                else:
-                    return
+                if start_at > window_end:
+                    continue
+                if start_at < window_start:
+                    reached_older = True
+                    break
+                yield node
 
-            if not seen_newer:
+            if reached_older:
                 break
 
             page += 1

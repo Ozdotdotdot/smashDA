@@ -198,20 +198,23 @@ class SQLiteStore:
         self,
         state: str,
         videogame_id: int,
-        cutoff_ts: int,
+        start_ts: int,
+        end_ts: Optional[int] = None,
     ) -> List[Dict]:
         """Return tournaments in the requested window from SQLite."""
-        rows = self.conn.execute(
-            """
+        query = """
             SELECT *
               FROM tournaments
              WHERE state = ?
                AND videogame_id = ?
                AND start_at >= ?
-             ORDER BY start_at DESC
-            """,
-            (state.upper(), int(videogame_id), cutoff_ts),
-        ).fetchall()
+        """
+        params: List[Any] = [state.upper(), int(videogame_id), int(start_ts)]
+        if end_ts is not None:
+            query += " AND start_at <= ?"
+            params.append(int(end_ts))
+        query += " ORDER BY start_at DESC"
+        rows = self.conn.execute(query, params).fetchall()
         return [
             {
                 "id": row["id"],

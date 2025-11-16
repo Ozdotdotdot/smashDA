@@ -31,6 +31,17 @@ def main() -> None:
         help="Rolling window in months (default: 6)",
     )
     parser.add_argument(
+        "--window-offset",
+        type=int,
+        default=0,
+        help="Shift the window this many months into the past (0 = newest window).",
+    )
+    parser.add_argument(
+        "--window-size",
+        type=int,
+        help="Override the window length in months (defaults to --months-back).",
+    )
+    parser.add_argument(
         "--output",
         help="Optional path to write the full metrics as a CSV instead of printing the table.",
     )
@@ -91,6 +102,8 @@ def main() -> None:
             target_character=args.character,
             assume_target_main=args.assume_target_main,
             large_event_threshold=args.large_event_threshold,
+            window_offset_months=args.window_offset,
+            window_size_months=args.window_size,
         )
         if df.empty:
             print("No players found in the requested window.")

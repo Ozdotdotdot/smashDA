@@ -75,13 +75,20 @@ def fetch_recent_tournaments(
     """Return tournaments in scope for downstream processing."""
     filt = filt or TournamentFilter()
     tournaments: List[Dict] = []
-    cutoff = datetime.now(timezone.utc) - timedelta(days=30 * filt.months_back)
-    cutoff_ts = int(cutoff.timestamp())
+    window_start_ts, window_end_ts = filt.window_bounds()
     if store is not None:
-        tournaments = store.load_tournaments(filt.state, filt.videogame_id, cutoff_ts)
-        coverage_missing = bool(tournaments) and min(
-            (t.get("startAt") or cutoff_ts) for t in tournaments
-        ) > cutoff_ts
+        tournaments = store.load_tournaments(
+            filt.state,
+            filt.videogame_id,
+            window_start_ts,
+            window_end_ts,
+        )
+        coverage_missing = False
+        if tournaments:
+            start_at_values = [t.get("startAt") or 0 for t in tournaments]
+            earliest = min(start_at_values)
+            latest = max(start_at_values)
+            coverage_missing = earliest > window_start_ts or latest < window_end_ts
         if (
             not tournaments
             or store.discovery_is_stale(filt.state, filt.videogame_id)
@@ -93,8 +100,12 @@ def fetch_recent_tournaments(
             store.record_discovery(filt.state, filt.videogame_id)
     else:
         tournaments = list(client.iter_recent_tournaments(filt))
-    # Filter again in case the DB contains tournaments older than requested window.
-    return [t for t in tournaments if (t.get("startAt") or 0) >= cutoff_ts]
+    # Filter again in case the DB contains tournaments outside the requested window.
+    return [
+        t
+        for t in tournaments
+        if window_start_ts <= (t.get("startAt") or 0) <= window_end_ts
+    ]
 
 
 def fetch_tournament_events(
