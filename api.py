@@ -74,9 +74,9 @@ def precomputed_metrics(
     ),
     limit: int = Query(
         50,
-        ge=1,
+        ge=0,
         le=500,
-        description="Maximum number of player rows to return.",
+        description="Maximum number of player rows to return (0 = all).",
     ),
 ) -> Dict[str, Any]:
     """Serve precomputed weighted win rate/opponent strength rows from SQLite."""
@@ -85,7 +85,7 @@ def precomputed_metrics(
         months_back=months_back,
         videogame_id=videogame_id,
         target_character=character,
-        limit=limit,
+        limit=None if limit == 0 else limit,
     )
     if not rows:
         raise HTTPException(
