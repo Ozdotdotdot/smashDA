@@ -159,14 +159,19 @@ def precompute_state_metrics(
     if df.empty:
         return 0
 
-    records = df[
-        [
-            "player_id",
-            "gamer_tag",
-            "weighted_win_rate",
-            "opponent_strength",
-        ]
-    ].to_dict(orient="records")
+    persisted_columns = [
+        "player_id",
+        "gamer_tag",
+        "weighted_win_rate",
+        "opponent_strength",
+        "home_state",
+        "home_state_inferred",
+        "avg_event_entrants",
+        "max_event_entrants",
+        "large_event_share",
+        "latest_event_start",
+    ]
+    records = df[persisted_columns].to_dict(orient="records")
     store = SQLiteStore(store_path)
     try:
         store.replace_player_metrics(

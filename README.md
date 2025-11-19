@@ -99,7 +99,7 @@ curl -G \
 
 Parameters mirror the CLI flags (`state`, `months_back`, `videogame_id`, `character`, and `limit`). The response is a compact list of `{player_id, gamer_tag, weighted_win_rate, opponent_strength}` rows suitable for sending to browsers so each visitor can filter/plot locally without re-running the expensive pipeline.
 
-You can now also apply the same filters exposed by the live `/search` endpoint—`filter_state`, entrant bounds, `min_max_event_entrants`, `min_large_event_share`, and `start_after`—so front ends can request pre-trimmed slices without rehydrating pandas.
+You can now also apply the same filters exposed by the live `/search` endpoint—`filter_state`, entrant bounds, `min_max_event_entrants`, `min_large_event_share`, and `start_after`—so front ends can request pre-trimmed slices without rehydrating pandas. (If you precomputed metrics before this change, re-run `precompute_metrics.py` so the cached rows include the new metadata columns.)
 
 ### Warming specific months
 

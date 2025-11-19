@@ -16,6 +16,13 @@ from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
 
 
+def _bool_to_int(value: Optional[bool]) -> Optional[int]:
+    """Convert optional booleans to SQLite-friendly integers."""
+    if value is None:
+        return None
+    return 1 if bool(value) else 0
+
+
 class SQLiteStore:
     """Small helper that persists tournaments + event payloads locally."""
 
@@ -103,6 +110,12 @@ class SQLiteStore:
                 gamer_tag TEXT,
                 weighted_win_rate REAL,
                 opponent_strength REAL,
+                home_state TEXT,
+                home_state_inferred INTEGER,
+                avg_event_entrants REAL,
+                max_event_entrants REAL,
+                large_event_share REAL,
+                latest_event_start INTEGER,
                 computed_at INTEGER NOT NULL,
                 PRIMARY KEY (state, videogame_id, months_back, target_character, player_id)
             );
@@ -114,6 +127,12 @@ class SQLiteStore:
         self.conn.commit()
         # Ensure new columns exist for older databases.
         self._ensure_column("tournaments", "country", "TEXT")
+        self._ensure_column("player_metrics", "home_state", "TEXT")
+        self._ensure_column("player_metrics", "home_state_inferred", "INTEGER")
+        self._ensure_column("player_metrics", "avg_event_entrants", "REAL")
+        self._ensure_column("player_metrics", "max_event_entrants", "REAL")
+        self._ensure_column("player_metrics", "large_event_share", "REAL")
+        self._ensure_column("player_metrics", "latest_event_start", "INTEGER")
 
     def _ensure_column(self, table: str, column: str, definition: str) -> None:
         """Add a column to an existing table if it is missing."""
@@ -398,9 +417,15 @@ class SQLiteStore:
                     gamer_tag,
                     weighted_win_rate,
                     opponent_strength,
+                    home_state,
+                    home_state_inferred,
+                    avg_event_entrants,
+                    max_event_entrants,
+                    large_event_share,
+                    latest_event_start,
                     computed_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 [
                     (
@@ -412,6 +437,12 @@ class SQLiteStore:
                         row.get("gamer_tag"),
                         row.get("weighted_win_rate"),
                         row.get("opponent_strength"),
+                        row.get("home_state"),
+                        _bool_to_int(row.get("home_state_inferred")),
+                        row.get("avg_event_entrants"),
+                        row.get("max_event_entrants"),
+                        row.get("large_event_share"),
+                        row.get("latest_event_start"),
                         now_ts,
                     )
                     for row in rows
@@ -433,6 +464,12 @@ class SQLiteStore:
                    gamer_tag,
                    weighted_win_rate,
                    opponent_strength,
+                   home_state,
+                   home_state_inferred,
+                   avg_event_entrants,
+                   max_event_entrants,
+                   large_event_share,
+                   latest_event_start,
                    computed_at
               FROM player_metrics
              WHERE state = ?
@@ -460,6 +497,14 @@ class SQLiteStore:
                 "gamer_tag": row["gamer_tag"],
                 "weighted_win_rate": row["weighted_win_rate"],
                 "opponent_strength": row["opponent_strength"],
+                "home_state": row["home_state"],
+                "home_state_inferred": bool(row["home_state_inferred"])
+                if row["home_state_inferred"] is not None
+                else None,
+                "avg_event_entrants": row["avg_event_entrants"],
+                "max_event_entrants": row["max_event_entrants"],
+                "large_event_share": row["large_event_share"],
+                "latest_event_start": row["latest_event_start"],
                 "computed_at": row["computed_at"],
             }
             for row in rows
