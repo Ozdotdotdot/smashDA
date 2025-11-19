@@ -99,6 +99,8 @@ curl -G \
 
 Parameters mirror the CLI flags (`state`, `months_back`, `videogame_id`, `character`, and `limit`). The response is a compact list of `{player_id, gamer_tag, weighted_win_rate, opponent_strength}` rows suitable for sending to browsers so each visitor can filter/plot locally without re-running the expensive pipeline.
 
+You can now also apply the same filters exposed by the live `/search` endpoint—`filter_state`, entrant bounds, `min_max_event_entrants`, `min_large_event_share`, and `start_after`—so front ends can request pre-trimmed slices without rehydrating pandas.
+
 ### Warming specific months
 
 If a bulk precompute run fails for a couple of states, run the CLI in month-sized slices to make sure SQLite contains the missing tournaments before retrying the precompute script:
@@ -135,6 +137,23 @@ uvicorn api:app --host 0.0.0.0 --port 8000
 - `GET /health` – returns `{"ok": true}`; useful for load balancers and tunnels.
 - `GET /precomputed` – serves cached weighted win rate/opponent strength rows (see above section).
 - `GET /search` – runs the analytics pipeline and returns the top N player rows.
+
+#### Query parameters for `/precomputed`
+
+| Param | Required | Description |
+| ----- | -------- | ----------- |
+| `state` | yes | Two-letter state/region used when metrics were precomputed. |
+| `months_back` | optional, default `6` | Rolling window the persisted metrics cover. |
+| `videogame_id` | optional, default `1386` | start.gg game ID the metrics were generated with. |
+| `character` | optional, default `"Marth"` | Character emphasis used during the precompute step. |
+| `limit` | optional, default `50` | Maximum rows to include (`0` streams everything). |
+| `filter_state` | optional, repeatable | Keep players whose `home_state` matches any provided code. |
+| `min_entrants` / `max_entrants` | optional | Filter by average event entrants. |
+| `min_max_event_entrants` | optional | Require the player’s largest event to clear a threshold. |
+| `min_large_event_share` | optional | Require at least this fraction of events to be “large” (`0.0–1.0`). |
+| `start_after` | optional | ISO date (`YYYY-MM-DD`) that the player’s latest event must be on/after. |
+
+Filtering happens after the rows are pulled from SQLite, so you can request generous limits (even `0`) once per UI load and cache the JSON client-side for quicker visual tweaks.
 
 #### Query parameters for `/search`
 

@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+import pandas as pd
 from fastapi import FastAPI, HTTPException, Query
 
 from smashcc.analysis import generate_player_metrics
@@ -49,6 +50,66 @@ def _load_precomputed_metrics(
         store.close()
 
 
+def _parse_start_after_timestamp(start_after: Optional[str]) -> Optional[int]:
+    """Convert the start_after string into a UTC timestamp suitable for filtering."""
+    if not start_after:
+        return None
+    try:
+        cutoff = datetime.fromisoformat(start_after).replace(tzinfo=timezone.utc)
+    except ValueError as exc:  # pragma: no cover - request validation
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid start_after date '{start_after}'. Expected YYYY-MM-DD.",
+        ) from exc
+    return int(cutoff.timestamp())
+
+
+def _apply_common_filters(
+    df: pd.DataFrame,
+    *,
+    filter_state: Optional[List[str]] = None,
+    min_entrants: Optional[int] = None,
+    max_entrants: Optional[int] = None,
+    min_max_event_entrants: Optional[int] = None,
+    min_large_event_share: Optional[float] = None,
+    start_after_ts: Optional[int] = None,
+) -> pd.DataFrame:
+    """Apply shared filtering semantics used by multiple endpoints."""
+    filtered = df
+    if filter_state:
+        allowed = {code.upper() for code in filter_state if code}
+        if allowed and "home_state" in filtered.columns:
+            state_series = filtered["home_state"].fillna("").str.upper()
+            filtered = filtered[state_series.isin(allowed)]
+
+    if min_entrants is not None and "avg_event_entrants" in filtered.columns:
+        filtered = filtered[filtered["avg_event_entrants"].fillna(0) >= min_entrants]
+
+    if max_entrants is not None and "avg_event_entrants" in filtered.columns:
+        filtered = filtered[filtered["avg_event_entrants"].fillna(0) <= max_entrants]
+
+    if (
+        min_max_event_entrants is not None
+        and "max_event_entrants" in filtered.columns
+    ):
+        filtered = filtered[
+            filtered["max_event_entrants"].fillna(0) >= min_max_event_entrants
+        ]
+
+    if (
+        min_large_event_share is not None
+        and "large_event_share" in filtered.columns
+    ):
+        filtered = filtered[
+            filtered["large_event_share"].fillna(0) >= min_large_event_share
+        ]
+
+    if start_after_ts is not None and "latest_event_start" in filtered.columns:
+        filtered = filtered[filtered["latest_event_start"].fillna(0) >= start_after_ts]
+
+    return filtered
+
+
 @app.get("/health")
 def health() -> Dict[str, bool]:
     """Simple liveness endpoint."""
@@ -78,27 +139,81 @@ def precomputed_metrics(
         le=500,
         description="Maximum number of player rows to return (0 = all).",
     ),
+    filter_state: Optional[List[str]] = Query(
+        None,
+        description="Repeatable filter that keeps players whose home_state matches one of the provided codes.",
+    ),
+    min_entrants: Optional[int] = Query(
+        None,
+        ge=0,
+        description="Minimum average event entrants.",
+    ),
+    max_entrants: Optional[int] = Query(
+        None,
+        ge=0,
+        description="Maximum average event entrants.",
+    ),
+    min_max_event_entrants: Optional[int] = Query(
+        None,
+        ge=0,
+        description="Minimum entrants for a player's largest single event.",
+    ),
+    min_large_event_share: Optional[float] = Query(
+        None,
+        ge=0.0,
+        le=1.0,
+        description="Minimum fraction of events that meet the large-event threshold.",
+    ),
+    start_after: Optional[str] = Query(
+        None,
+        description="Only include players whose latest event started on or after this date (YYYY-MM-DD).",
+    ),
 ) -> Dict[str, Any]:
     """Serve precomputed weighted win rate/opponent strength rows from SQLite."""
+    filters_requested = any(
+        [
+            bool(filter_state),
+            min_entrants is not None,
+            max_entrants is not None,
+            min_max_event_entrants is not None,
+            min_large_event_share is not None,
+            start_after is not None,
+        ]
+    )
+    store_limit = None if (limit == 0 or filters_requested) else limit
     rows = _load_precomputed_metrics(
         state=state,
         months_back=months_back,
         videogame_id=videogame_id,
         target_character=character,
-        limit=None if limit == 0 else limit,
+        limit=store_limit,
     )
     if not rows:
         raise HTTPException(
             status_code=404,
             detail="No precomputed metrics found for the requested parameters.",
         )
+    df = pd.DataFrame(rows)
+    start_after_ts = _parse_start_after_timestamp(start_after)
+    df = _apply_common_filters(
+        df,
+        filter_state=filter_state,
+        min_entrants=min_entrants,
+        max_entrants=max_entrants,
+        min_max_event_entrants=min_max_event_entrants,
+        min_large_event_share=min_large_event_share,
+        start_after_ts=start_after_ts,
+    )
+
+    limited_df = df if limit == 0 else df.head(limit)
+    records: List[Dict[str, Any]] = limited_df.to_dict(orient="records")
     return {
         "state": state,
         "character": character,
         "months_back": months_back,
         "videogame_id": videogame_id,
-        "count": len(rows),
-        "results": rows,
+        "count": len(records),
+        "results": records,
     }
 
 
@@ -181,42 +296,18 @@ def search(
     except Exception as exc:  # pragma: no cover - protective circuit
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
-    if filter_state:
-        allowed = {code.upper() for code in filter_state if code}
-        if allowed and "home_state" in df.columns:
-            state_series = df["home_state"].fillna("").str.upper()
-            df = df[state_series.isin(allowed)]
+    start_after_ts = _parse_start_after_timestamp(start_after)
+    df = _apply_common_filters(
+        df,
+        filter_state=filter_state,
+        min_entrants=min_entrants,
+        max_entrants=max_entrants,
+        min_max_event_entrants=min_max_event_entrants,
+        min_large_event_share=min_large_event_share,
+        start_after_ts=start_after_ts,
+    )
 
-    if min_entrants is not None and "avg_event_entrants" in df.columns:
-        df = df[df["avg_event_entrants"].fillna(0) >= min_entrants]
-
-    if max_entrants is not None and "avg_event_entrants" in df.columns:
-        df = df[df["avg_event_entrants"].fillna(0) <= max_entrants]
-
-    if min_max_event_entrants is not None and "max_event_entrants" in df.columns:
-        df = df[df["max_event_entrants"].fillna(0) >= min_max_event_entrants]
-
-    if (
-        min_large_event_share is not None
-        and "large_event_share" in df.columns
-    ):
-        df = df[df["large_event_share"].fillna(0) >= min_large_event_share]
-
-    if start_after:
-        try:
-            cutoff = datetime.fromisoformat(start_after).replace(tzinfo=timezone.utc)
-        except ValueError as exc:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Invalid start_after date '{start_after}'. Expected YYYY-MM-DD.",
-            ) from exc
-        cutoff_ts = int(cutoff.timestamp())
-        df = df[df["latest_event_start"].fillna(0) >= cutoff_ts]
-
-    if limit == 0:
-        limited_df = df
-    else:
-        limited_df = df.head(limit)
+    limited_df = df if limit == 0 else df.head(limit)
     records: List[Dict[str, Any]] = limited_df.to_dict(orient="records")
     return {
         "state": state,
