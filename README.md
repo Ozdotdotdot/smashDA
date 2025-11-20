@@ -138,6 +138,10 @@ uvicorn api:app --host 0.0.0.0 --port 8000
 - `GET /precomputed` – serves cached weighted win rate/opponent strength rows (see above section).
 - `GET /search` – runs the analytics pipeline and returns the top N player rows.
 
+### Rate limiting
+
+All HTTP endpoints share a lightweight per-IP rate limiter (default: 60 requests per 60 seconds). Tune the ceiling through `SMASHCC_RATE_LIMIT_REQUESTS` and `SMASHCC_RATE_LIMIT_WINDOW` environment variables or set the request count to `0` to disable the guard entirely. Exceeding the limit returns HTTP 429 with a `Retry-After` header so clients know when to retry.
+
 #### Query parameters for `/precomputed`
 
 | Param | Required | Description |

@@ -2,13 +2,17 @@
 
 from __future__ import annotations
 
+import asyncio
 import os
+import time
+from collections import deque
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Deque, Dict, List, Optional
 
 import pandas as pd
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi.responses import JSONResponse
 
 from smashcc.analysis import generate_player_metrics
 from smashcc.datastore import SQLiteStore
@@ -20,6 +24,50 @@ app = FastAPI(
 )
 
 DEFAULT_STORE_PATH = Path(".cache") / "startgg" / "smash.db"
+
+
+class RateLimiter:
+    """Simple in-memory per-IP limiter using a sliding window."""
+
+    def __init__(self, limit: int, window_seconds: int) -> None:
+        self.limit = max(0, int(limit))
+        self.window = max(1, int(window_seconds))
+        self._hits: Dict[str, Deque[float]] = {}
+        self._lock = asyncio.Lock()
+
+    @property
+    def enabled(self) -> bool:
+        return self.limit > 0
+
+    def describe(self) -> str:
+        if not self.enabled:
+            return "unlimited"
+        unit = "second" if self.window == 1 else "seconds"
+        return f"{self.limit} requests per {self.window} {unit}"
+
+    async def check(self, identity: str) -> Optional[float]:
+        """Record a hit and return retry-after seconds when over the limit."""
+        if not self.enabled:
+            return None
+        now = time.monotonic()
+        window_start = now - self.window
+        async with self._lock:
+            dq = self._hits.get(identity)
+            if dq is None:
+                dq = deque()
+                self._hits[identity] = dq
+            while dq and dq[0] <= window_start:
+                dq.popleft()
+            if len(dq) >= self.limit:
+                retry_after = max(0.0, self.window - (now - dq[0]))
+                return retry_after
+            dq.append(now)
+            return None
+
+
+RATE_LIMIT_REQUESTS = int(os.getenv("SMASHCC_RATE_LIMIT_REQUESTS", "60"))
+RATE_LIMIT_WINDOW = int(os.getenv("SMASHCC_RATE_LIMIT_WINDOW", "60"))
+rate_limiter = RateLimiter(RATE_LIMIT_REQUESTS, RATE_LIMIT_WINDOW)
 
 
 def _get_store_path() -> Path:
@@ -123,6 +171,24 @@ def _require_columns(df: pd.DataFrame, required: Dict[str, str]) -> None:
                 "so the player_metrics table persists those fields."
             ),
         )
+
+
+@app.middleware("http")
+async def enforce_rate_limit(request: Request, call_next):
+    identity = request.client.host if request.client else "unknown"
+    retry_after = await rate_limiter.check(identity)
+    if retry_after is not None:
+        headers = {"Retry-After": str(int(retry_after) + 1)}
+        detail = (
+            "Rate limit exceeded. "
+            f"The API allows {rate_limiter.describe()}. Please wait and try again."
+        )
+        return JSONResponse(
+            status_code=429,
+            content={"detail": detail},
+            headers=headers,
+        )
+    return await call_next(request)
 
 
 @app.get("/health")
