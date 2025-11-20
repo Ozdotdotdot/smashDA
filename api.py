@@ -110,6 +110,21 @@ def _apply_common_filters(
     return filtered
 
 
+def _require_columns(df: pd.DataFrame, required: Dict[str, str]) -> None:
+    """Ensure the requested filters can run with the provided DataFrame."""
+    missing = [pretty for column, pretty in required.items() if column not in df.columns]
+    if missing:
+        readable = ", ".join(missing)
+        raise HTTPException(
+            status_code=412,
+            detail=(
+                "Precomputed metrics are missing the columns required for the requested "
+                f"filters ({readable}). Re-run precompute_metrics.py with the latest code "
+                "so the player_metrics table persists those fields."
+            ),
+        )
+
+
 @app.get("/health")
 def health() -> Dict[str, bool]:
     """Simple liveness endpoint."""
@@ -195,6 +210,19 @@ def precomputed_metrics(
         )
     df = pd.DataFrame(rows)
     start_after_ts = _parse_start_after_timestamp(start_after)
+    required_columns: Dict[str, str] = {}
+    if filter_state:
+        required_columns["home_state"] = "home_state"
+    if min_entrants is not None or max_entrants is not None:
+        required_columns["avg_event_entrants"] = "avg_event_entrants"
+    if min_max_event_entrants is not None:
+        required_columns["max_event_entrants"] = "max_event_entrants"
+    if min_large_event_share is not None:
+        required_columns["large_event_share"] = "large_event_share"
+    if start_after_ts is not None:
+        required_columns["latest_event_start"] = "latest_event_start"
+    if required_columns:
+        _require_columns(df, required_columns)
     df = _apply_common_filters(
         df,
         filter_state=filter_state,
