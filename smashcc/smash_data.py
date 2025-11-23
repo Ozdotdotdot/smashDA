@@ -86,6 +86,7 @@ def fetch_recent_tournaments(
             window_end_ts,
         )
         coverage_missing = False
+        discovery_stale = store.discovery_is_stale(filt.state, filt.videogame_id)
         if tournaments:
             print(f"Found {len(tournaments)} tournament(s) in local database.")
         else:
@@ -95,16 +96,48 @@ def fetch_recent_tournaments(
             earliest = min(start_at_values)
             latest = max(start_at_values)
             coverage_missing = earliest > window_start_ts or latest < window_end_ts
-        if (
-            not tournaments
-            or store.discovery_is_stale(filt.state, filt.videogame_id)
-            or coverage_missing
-        ):
-            print("Local data missing or stale; querying start.gg for recent tournaments...")
-            tournaments = list(client.iter_recent_tournaments(filt))
-            if tournaments:
-                store.upsert_tournaments(tournaments, filt.videogame_id)
+        if not tournaments or discovery_stale or coverage_missing:
+            delta_query = False
+            delta_filter = filt
+            if discovery_stale and tournaments and not coverage_missing:
+                latest_start = max(t.get("startAt") or 0 for t in tournaments)
+                delta_start_ts = max(window_start_ts, latest_start)
+                delta_filter = TournamentFilter(
+                    state=filt.state,
+                    videogame_id=filt.videogame_id,
+                    months_back=filt.months_back,
+                    per_page=filt.per_page,
+                    window_offset=filt.window_offset,
+                    window_size=filt.window_size,
+                    start_ts_override=delta_start_ts,
+                    end_ts_override=window_end_ts,
+                )
+                cutoff_date = datetime.fromtimestamp(delta_start_ts, tz=timezone.utc).strftime(
+                    "%Y-%m-%d"
+                )
+                print(
+                    f"Local data is stale; querying start.gg for tournaments after {cutoff_date} (delta only)..."
+                )
+                delta_query = True
+            else:
+                print("Local data missing or coverage incomplete; querying start.gg for recent tournaments...")
+
+            fresh = list(client.iter_recent_tournaments(delta_filter))
+            if fresh:
+                store.upsert_tournaments(fresh, filt.videogame_id)
             store.record_discovery(filt.state, filt.videogame_id)
+
+            if delta_query:
+                merged = {str(t.get("id")): t for t in tournaments}
+                for tourney in fresh:
+                    merged[str(tourney.get("id"))] = tourney
+                tournaments = sorted(
+                    merged.values(),
+                    key=lambda t: t.get("startAt") or 0,
+                    reverse=True,
+                )
+            else:
+                tournaments = fresh
         else:
             print("Using cached tournaments from local database.")
     else:

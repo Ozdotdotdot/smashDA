@@ -55,6 +55,8 @@ class TournamentFilter:
     per_page: int = 50
     window_offset: int = 0
     window_size: Optional[int] = None
+    start_ts_override: Optional[int] = None
+    end_ts_override: Optional[int] = None
 
     def window_months(self) -> int:
         """Return the number of months covered by the window."""
@@ -67,7 +69,17 @@ class TournamentFilter:
         now = datetime.now(timezone.utc)
         window_end = now - timedelta(days=30 * offset)
         window_start = window_end - timedelta(days=30 * self.window_months())
-        return int(window_start.timestamp()), int(window_end.timestamp())
+        start = (
+            int(self.start_ts_override)
+            if self.start_ts_override is not None
+            else int(window_start.timestamp())
+        )
+        end = (
+            int(self.end_ts_override)
+            if self.end_ts_override is not None
+            else int(window_end.timestamp())
+        )
+        return start, end
 
 
 class StartGGClient:
