@@ -78,6 +78,7 @@ def fetch_recent_tournaments(
     tournaments: List[Dict] = []
     window_start_ts, window_end_ts = filt.window_bounds()
     if store is not None:
+        print("Checking local database for cached tournaments...")
         tournaments = store.load_tournaments(
             filt.state,
             filt.videogame_id,
@@ -85,6 +86,10 @@ def fetch_recent_tournaments(
             window_end_ts,
         )
         coverage_missing = False
+        if tournaments:
+            print(f"Found {len(tournaments)} tournament(s) in local database.")
+        else:
+            print("No cached tournaments found in local database.")
         if tournaments:
             start_at_values = [t.get("startAt") or 0 for t in tournaments]
             earliest = min(start_at_values)
@@ -95,11 +100,15 @@ def fetch_recent_tournaments(
             or store.discovery_is_stale(filt.state, filt.videogame_id)
             or coverage_missing
         ):
+            print("Local data missing or stale; querying start.gg for recent tournaments...")
             tournaments = list(client.iter_recent_tournaments(filt))
             if tournaments:
                 store.upsert_tournaments(tournaments, filt.videogame_id)
             store.record_discovery(filt.state, filt.videogame_id)
+        else:
+            print("Using cached tournaments from local database.")
     else:
+        print("No local database configured; querying start.gg for recent tournaments...")
         tournaments = list(client.iter_recent_tournaments(filt))
     # Filter again in case the DB contains tournaments outside the requested window.
     return [
