@@ -125,6 +125,7 @@ Each invocation updates the local `.cache/startgg/smash.db` store without commit
 - The first run hydrates a SQLite database at `.cache/startgg/smash.db` that stores tournaments, events, and per-event payloads. Follow-up runs read straight from the database (and only re-sync from start.gg once a week or when the date window expands), so you can explore older tournaments offline. Delete the file if you ever want to rebuild it from scratch, or pass `use_store=False` to `generate_player_metrics` for ephemeral environments.
 - Raw GraphQL responses are no longer cached as JSON when the SQLite store is enabled. If you need the old behavior (e.g., for debugging schema changes), pass `use_store=False` or `use_cache=True` explicitly to `generate_player_metrics` to re-enable the hashed `.cache/startgg/*.json` snapshots (those still auto-refresh every seven days and archive the previous payload).
 - Location attribution got more robust: we now infer a `home_state` only when at least three events with known states exist and one state accounts for ≥60% of them. Tournaments also record `addrCountry`, so we expose `home_country`/confidence columns alongside the state fields. Use these when filtering travelers vs. locals or when exploring regions outside the US.
+- Series discovery & precompute: use `run_report.py --tournament-contains/--tournament-slug-contains` to scope a slice by series; `Visualizer.ipynb` and `Visualizer_api.ipynb` expose the same knobs for manual exploration. For fast API responses, precompute series metrics with `python precompute_metrics.py --state GA --months-back 3 --auto-series` (picks top N series by entrants plus any with max entrants ≥ threshold or event count ≥ threshold; defaults N=5, max≥32, events≥3). Results live in the `player_series_metrics` table.
 
 ## API usage
 
@@ -139,6 +140,8 @@ uvicorn api:app --host 0.0.0.0 --port 8000
 - `GET /health` – returns `{"ok": true}`; useful for load balancers and tunnels.
 - `GET /precomputed` – serves cached weighted win rate/opponent strength rows (see above section).
 - `GET /search` – runs the analytics pipeline and returns the top N player rows.
+- `GET /precomputed_series` – serves cached series-scoped metrics; accepts `state`, `months_back`, `videogame_id`, `window_offset`, `window_size`, and either `series_key` or term selectors (`tournament_contains`/`tournament_slug_contains`). Supports the same filters as `/precomputed` (`filter_state`, entrant bounds, `start_after`). Response includes `resolved_label` to show which series matched your terms.
+- `GET /tournaments` – returns tournaments in a window, optionally filtered by name/slug substrings (series search).
 - `GET /tournaments` – returns tournaments in a window, optionally filtered by name/slug substrings (series search).
 
 ### Rate limiting
