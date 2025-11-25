@@ -1,0 +1,152 @@
+"""Helpers for discovering and ranking tournament series candidates."""
+
+from __future__ import annotations
+
+import re
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Dict, List, Optional
+
+from .datastore import SQLiteStore
+from .smash_data import fetch_recent_tournaments
+from .startgg_client import StartGGClient, TournamentFilter
+
+
+@dataclass(frozen=True)
+class SeriesCandidate:
+    """Represents a single tournament series candidate for precomputation."""
+
+    series_key: str
+    name_term: Optional[str]
+    slug_term: Optional[str]
+    sample_name: Optional[str]
+    sample_slug: Optional[str]
+    tournaments: List[int]
+    event_count: int
+    total_attendees: int
+    max_attendees: int
+
+
+def _normalize_slug_token(slug: Optional[str]) -> Optional[str]:
+    """Return a normalized slug segment without trailing volume numbers."""
+    if not slug:
+        return None
+    token = slug.split("/")[-1].lower()
+    token = re.sub(r"-?(week|wk|weekly|monthly|month|vol|volume)?-?\d+$", "", token)
+    token = re.sub(r"-+", "-", token).strip("-")
+    return token or None
+
+
+def _normalize_name_token(name: Optional[str]) -> Optional[str]:
+    """Normalize a tournament name into a substring-friendly token."""
+    if not name:
+        return None
+    token = name.lower().strip()
+    token = re.sub(r"\s+", " ", token)
+    token = re.sub(r"(week|wk|weekly|monthly|month|vol|volume)\s*\d+$", "", token)
+    token = token.strip(" -")
+    return token or None
+
+
+def rank_series_for_state(
+    *,
+    state: str,
+    months_back: int = 6,
+    videogame_id: int = 1386,
+    window_offset: int = 0,
+    window_size: Optional[int] = None,
+    store_path: Optional[Path] = None,
+    top_n: int = 5,
+    min_max_attendees: int = 32,
+    min_event_count: int = 3,
+    use_cache: bool = False,
+) -> List[SeriesCandidate]:
+    """
+    Analyze tournaments in the cached window and return ranked series candidates.
+
+    Selection logic:
+        * Compute per-series totals (by normalized name/slug token) for the window.
+        * Include the top N by total attendees.
+        * Also include any series whose max attendees >= min_max_attendees
+          OR whose event count >= min_event_count.
+    """
+    client = StartGGClient(use_cache=use_cache)
+    store: Optional[SQLiteStore] = SQLiteStore(store_path) if store_path or use_cache else None
+    filt = TournamentFilter(
+        state=state,
+        videogame_id=videogame_id,
+        months_back=months_back,
+        window_offset=window_offset,
+        window_size=window_size,
+    )
+    try:
+        tournaments = fetch_recent_tournaments(client, filt, store=store)
+    finally:
+        if store is not None:
+            store.close()
+
+    series_map: Dict[str, Dict] = {}
+    for tourney in tournaments:
+        tid = tourney.get("id")
+        if tid is None:
+            continue
+        name_term = _normalize_name_token(tourney.get("name"))
+        slug_term = _normalize_slug_token(tourney.get("slug"))
+        series_key = slug_term or name_term
+        if series_key is None:
+            series_key = str(tid)
+        entry = series_map.setdefault(
+            series_key,
+            {
+                "name_term": name_term,
+                "slug_term": slug_term,
+                "sample_name": tourney.get("name"),
+                "sample_slug": tourney.get("slug"),
+                "tournaments": [],
+                "event_count": 0,
+                "total_attendees": 0,
+                "max_attendees": 0,
+            },
+        )
+        entry["tournaments"].append(int(tid))
+        entry["event_count"] += 1
+        entrants = int(tourney.get("numAttendees") or 0)
+        entry["total_attendees"] += entrants
+        entry["max_attendees"] = max(entry["max_attendees"], entrants)
+
+    candidates: List[SeriesCandidate] = []
+    for key, data in series_map.items():
+        candidates.append(
+            SeriesCandidate(
+                series_key=key,
+                name_term=data["name_term"],
+                slug_term=data["slug_term"],
+                sample_name=data["sample_name"],
+                sample_slug=data["sample_slug"],
+                tournaments=data["tournaments"],
+                event_count=data["event_count"],
+                total_attendees=data["total_attendees"],
+                max_attendees=data["max_attendees"],
+            )
+        )
+
+    # Sort by total attendees, then event count, then max attendees.
+    candidates.sort(
+        key=lambda c: (c.total_attendees, c.event_count, c.max_attendees, c.series_key),
+        reverse=True,
+    )
+
+    selected: Dict[str, SeriesCandidate] = {}
+    for cand in candidates[: max(0, int(top_n))]:
+        selected[cand.series_key] = cand
+
+    for cand in candidates:
+        if cand.series_key in selected:
+            continue
+        if cand.max_attendees >= max(0, int(min_max_attendees)) or cand.event_count >= max(
+            1, int(min_event_count)
+        ):
+            selected[cand.series_key] = cand
+
+    # Stable ordering: keep the original sort for determinism.
+    return [c for c in candidates if c.series_key in selected]

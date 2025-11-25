@@ -6,7 +6,11 @@ import os
 from pathlib import Path
 from typing import List
 
-from smashcc.analysis import precompute_state_metrics
+from smashcc.analysis import (
+    auto_select_series,
+    precompute_series_metrics,
+    precompute_state_metrics,
+)
 from smashcc.datastore import SQLiteStore
 
 
@@ -87,6 +91,32 @@ def main() -> None:
         default=None,
         help="Optional override for the SQLite store path.",
     )
+    parser.add_argument(
+        "--auto-series",
+        action="store_true",
+        help=(
+            "Automatically select series per state and precompute series-scoped metrics "
+            "(top N by attendees plus any that meet size/count thresholds)."
+        ),
+    )
+    parser.add_argument(
+        "--top-n-per-state",
+        type=int,
+        default=5,
+        help="How many series per state to always include (ranked by total attendees).",
+    )
+    parser.add_argument(
+        "--min-series-max-entrants",
+        type=int,
+        default=32,
+        help="Include any series whose single largest event meets or exceeds this entrant count.",
+    )
+    parser.add_argument(
+        "--min-series-events",
+        type=int,
+        default=3,
+        help="Include any series with at least this many tournaments in the window.",
+    )
     args = parser.parse_args()
 
     if not args.states and not args.all_states:
@@ -122,6 +152,41 @@ def main() -> None:
         )
         print(f"    Stored {row_count} players for {state}.")
         processed += 1
+        if args.auto_series:
+            print("    Selecting series candidates...")
+            candidates = auto_select_series(
+                state=state,
+                months_back=args.months_back,
+                videogame_id=args.videogame_id,
+                window_offset_months=args.window_offset,
+                window_size_months=args.window_size,
+                store_path=store_path,
+                top_n=args.top_n_per_state,
+                min_max_attendees=args.min_series_max_entrants,
+                min_event_count=args.min_series_events,
+            )
+            if not candidates:
+                print("    No series candidates found for this state/window.")
+            for cand in candidates:
+                print(
+                    f"    Precomputing series '{cand.series_key}' "
+                    f"(events={cand.event_count}, max={cand.max_attendees}, total={cand.total_attendees})..."
+                )
+                series_rows = precompute_series_metrics(
+                    state=state,
+                    series_key=cand.series_key,
+                    series_name_term=cand.name_term,
+                    series_slug_term=cand.slug_term,
+                    months_back=args.months_back,
+                    videogame_id=args.videogame_id,
+                    target_character=args.character,
+                    assume_target_main=args.assume_target_main,
+                    store_path=store_path,
+                    large_event_threshold=args.large_event_threshold,
+                    window_offset_months=args.window_offset,
+                    window_size_months=args.window_size,
+                )
+                print(f"        Stored {series_rows} players for series '{cand.series_key}'.")
 
     print(f"Finished processing {processed} state(s).")
 

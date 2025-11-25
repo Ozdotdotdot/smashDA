@@ -98,6 +98,32 @@ def _load_precomputed_metrics(
         store.close()
 
 
+def _load_series_metrics(
+    *,
+    state: str,
+    months_back: int,
+    videogame_id: int,
+    window_offset: int,
+    window_size: Optional[int],
+    series_key: str,
+    limit: Optional[int] = None,
+) -> List[Dict[str, Any]]:
+    """Fetch persisted series metric rows for the requested parameters."""
+    store = SQLiteStore(_get_store_path())
+    try:
+        return store.load_series_metrics(
+            state=state,
+            videogame_id=videogame_id,
+            months_back=months_back,
+            window_offset=window_offset,
+            window_size=window_size,
+            series_key=series_key,
+            limit=limit,
+        )
+    finally:
+        store.close()
+
+
 def _parse_start_after_timestamp(start_after: Optional[str]) -> Optional[int]:
     """Convert the start_after string into a UTC timestamp suitable for filtering."""
     if not start_after:
@@ -161,6 +187,61 @@ def _apply_common_filters(
         filtered = filtered[filtered["latest_event_start"].fillna(0) >= start_after_ts]
 
     return filtered
+
+
+def _find_series(
+    *,
+    state: str,
+    videogame_id: int,
+    months_back: int,
+    window_offset: int,
+    window_size: Optional[int],
+    series_key: Optional[str],
+    tournament_contains: Optional[List[str]],
+    tournament_slug_contains: Optional[List[str]],
+) -> Dict[str, Any]:
+    """Resolve a series key using provided hints."""
+    if series_key:
+        return {
+            "series_key": series_key,
+            "series_name_term": None,
+            "series_slug_term": None,
+        }
+    name_term = (tournament_contains or [None])[0]
+    slug_term = (tournament_slug_contains or [None])[0]
+    if not name_term and not slug_term:
+        raise HTTPException(
+            status_code=400,
+            detail="Provide either series_key or tournament_contains/slug_contains to select a series.",
+        )
+    store = SQLiteStore(_get_store_path())
+    try:
+        matches = store.find_series_keys(
+            state=state,
+            videogame_id=videogame_id,
+            months_back=months_back,
+            window_offset=window_offset,
+            window_size=window_size,
+            name_contains=name_term,
+            slug_contains=slug_term,
+            limit=5,
+        )
+    finally:
+        store.close()
+    if not matches:
+        raise HTTPException(status_code=404, detail="No precomputed series matched the provided terms.")
+    if len(matches) > 1:
+        options = [m["series_key"] for m in matches]
+        raise HTTPException(
+            status_code=412,
+            detail=f"Multiple precomputed series match those terms. Specify one via series_key. Options: {options}",
+        )
+    match = matches[0]
+    return {
+        "series_key": match["series_key"],
+        "series_name_term": match.get("series_name_term"),
+        "series_slug_term": match.get("series_slug_term"),
+    }
 
 
 def _require_columns(df: pd.DataFrame, required: Dict[str, str]) -> None:
@@ -520,6 +601,145 @@ def list_tournaments(
         "state": state,
         "videogame_id": videogame_id,
         "months_back": months_back,
+        "count": len(records),
+        "results": records,
+    }
+
+
+@app.get("/precomputed_series")
+def precomputed_series(
+    state: str = Query(..., description="Two-letter region/state code."),
+    months_back: int = Query(
+        6,
+        ge=1,
+        le=24,
+        description="Rolling window the metrics were generated with.",
+    ),
+    videogame_id: int = Query(
+        1386,
+        description="start.gg videogame identifier (Ultimate = 1386, Melee = 1).",
+    ),
+    window_offset: int = Query(
+        0,
+        ge=0,
+        description="Shift the window this many months into the past (0 = newest window).",
+    ),
+    window_size: Optional[int] = Query(
+        None,
+        ge=1,
+        le=24,
+        description="Override the window size in months (defaults to months_back).",
+    ),
+    series_key: Optional[str] = Query(
+        None,
+        description="Exact series key to load. Skip this if you prefer term-based selection.",
+    ),
+    tournament_contains: Optional[List[str]] = Query(
+        None,
+        description="Repeatable filter that matches series whose name term contains this substring.",
+    ),
+    tournament_slug_contains: Optional[List[str]] = Query(
+        None,
+        description="Repeatable filter that matches series whose slug term contains this substring.",
+    ),
+    limit: int = Query(
+        50,
+        ge=0,
+        le=500,
+        description="Maximum number of player rows to return (0 = all).",
+    ),
+    filter_state: Optional[List[str]] = Query(
+        None,
+        description="Repeatable filter that keeps players whose home_state matches one of the provided codes.",
+    ),
+    min_entrants: Optional[int] = Query(
+        None,
+        ge=0,
+        description="Minimum average event entrants.",
+    ),
+    max_entrants: Optional[int] = Query(
+        None,
+        ge=0,
+        description="Maximum average event entrants.",
+    ),
+    min_max_event_entrants: Optional[int] = Query(
+        None,
+        ge=0,
+        description="Minimum entrants for a player's largest single event.",
+    ),
+    min_large_event_share: Optional[float] = Query(
+        None,
+        ge=0.0,
+        le=1.0,
+        description="Minimum fraction of events that meet the large-event threshold.",
+    ),
+    start_after: Optional[str] = Query(
+        None,
+        description="Only include players whose latest event started on or after this date (YYYY-MM-DD).",
+    ),
+) -> Dict[str, Any]:
+    """Serve precomputed series-scoped metrics from SQLite."""
+    resolved = _find_series(
+        state=state,
+        videogame_id=videogame_id,
+        months_back=months_back,
+        window_offset=window_offset,
+        window_size=window_size,
+        series_key=series_key,
+        tournament_contains=_normalize_terms(tournament_contains),
+        tournament_slug_contains=_normalize_terms(tournament_slug_contains),
+    )
+
+    rows = _load_series_metrics(
+        state=state,
+        months_back=months_back,
+        videogame_id=videogame_id,
+        window_offset=window_offset,
+        window_size=window_size,
+        series_key=resolved["series_key"],
+        limit=None if limit == 0 else limit,
+    )
+    if not rows:
+        raise HTTPException(
+            status_code=404,
+            detail="No precomputed series metrics found for the requested parameters.",
+        )
+
+    df = pd.DataFrame(rows)
+    start_after_ts = _parse_start_after_timestamp(start_after)
+    required_columns: Dict[str, str] = {}
+    if filter_state:
+        required_columns["home_state"] = "home_state"
+    if min_entrants is not None or max_entrants is not None:
+        required_columns["avg_event_entrants"] = "avg_event_entrants"
+    if min_max_event_entrants is not None:
+        required_columns["max_event_entrants"] = "max_event_entrants"
+    if min_large_event_share is not None:
+        required_columns["large_event_share"] = "large_event_share"
+    if start_after_ts is not None:
+        required_columns["latest_event_start"] = "latest_event_start"
+    if required_columns:
+        _require_columns(df, required_columns)
+
+    df = _apply_common_filters(
+        df,
+        filter_state=filter_state,
+        min_entrants=min_entrants,
+        max_entrants=max_entrants,
+        min_max_event_entrants=min_max_event_entrants,
+        min_large_event_share=min_large_event_share,
+        start_after_ts=start_after_ts,
+    )
+
+    limited_df = df if limit == 0 else df.head(limit)
+    records: List[Dict[str, Any]] = limited_df.to_dict(orient="records")
+    return {
+        "state": state,
+        "series_key": resolved["series_key"],
+        "series_name_term": resolved.get("series_name_term"),
+        "series_slug_term": resolved.get("series_slug_term"),
+        "months_back": months_back,
+        "videogame_id": videogame_id,
         "count": len(records),
         "results": records,
     }

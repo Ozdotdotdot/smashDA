@@ -12,6 +12,7 @@ from .smash_data import (
     collect_player_results_for_tournaments,
     fetch_recent_tournaments,
 )
+from .series import SeriesCandidate, rank_series_for_state
 from .startgg_client import StartGGClient
 
 
@@ -194,6 +195,95 @@ def precompute_state_metrics(
     return len(records)
 
 
+def precompute_series_metrics(
+    *,
+    state: str,
+    series_key: str,
+    series_name_term: Optional[str],
+    series_slug_term: Optional[str],
+    months_back: int = 6,
+    videogame_id: int = 1386,
+    target_character: str = "Marth",
+    assume_target_main: bool = False,
+    store_path: Optional[Path] = None,
+    large_event_threshold: int = 32,
+    window_offset_months: int = 0,
+    window_size_months: Optional[int] = None,
+) -> int:
+    """Compute metrics for a specific series and persist them."""
+    df = generate_player_metrics(
+        state=state,
+        months_back=months_back,
+        videogame_id=videogame_id,
+        target_character=target_character,
+        assume_target_main=assume_target_main,
+        store_path=store_path,
+        large_event_threshold=large_event_threshold,
+        window_offset_months=window_offset_months,
+        window_size_months=window_size_months,
+        tournament_name_contains=[series_name_term] if series_name_term else None,
+        tournament_slug_contains=[series_slug_term] if series_slug_term else None,
+    )
+    if df.empty:
+        return 0
+
+    persisted_columns = [
+        "player_id",
+        "gamer_tag",
+        "weighted_win_rate",
+        "opponent_strength",
+        "home_state",
+        "home_state_inferred",
+        "avg_event_entrants",
+        "max_event_entrants",
+        "large_event_share",
+        "latest_event_start",
+    ]
+    records = df[persisted_columns].to_dict(orient="records")
+    store = SQLiteStore(store_path)
+    try:
+        store.replace_series_metrics(
+            state=state,
+            videogame_id=videogame_id,
+            months_back=months_back,
+            window_offset=window_offset_months,
+            window_size=window_size_months,
+            series_key=series_key,
+            series_name_term=series_name_term,
+            series_slug_term=series_slug_term,
+            rows=records,
+        )
+    finally:
+        store.close()
+    return len(records)
+
+
+def auto_select_series(
+    *,
+    state: str,
+    months_back: int = 6,
+    videogame_id: int = 1386,
+    window_offset_months: int = 0,
+    window_size_months: Optional[int] = None,
+    store_path: Optional[Path] = None,
+    top_n: int = 5,
+    min_max_attendees: int = 32,
+    min_event_count: int = 3,
+) -> list[SeriesCandidate]:
+    """Return ranked series candidates for a state using cached tournaments."""
+    return rank_series_for_state(
+        state=state,
+        months_back=months_back,
+        videogame_id=videogame_id,
+        window_offset=window_offset_months,
+        window_size=window_size_months,
+        store_path=store_path,
+        top_n=top_n,
+        min_max_attendees=min_max_attendees,
+        min_event_count=min_event_count,
+    )
+
+
 def find_tournaments(
     state: str = "GA",
     months_back: int = 6,
@@ -232,5 +322,8 @@ __all__ = [
     "generate_player_metrics",
     "generate_character_report",
     "precompute_state_metrics",
+    "precompute_series_metrics",
+    "auto_select_series",
+    "rank_series_for_state",
     "find_tournaments",
 ]

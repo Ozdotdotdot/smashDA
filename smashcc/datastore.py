@@ -130,6 +130,40 @@ class SQLiteStore:
 
             CREATE INDEX IF NOT EXISTS idx_player_metrics_state
               ON player_metrics(state, videogame_id, months_back, target_character);
+
+            CREATE TABLE IF NOT EXISTS player_series_metrics (
+                state TEXT NOT NULL,
+                videogame_id INTEGER NOT NULL,
+                months_back INTEGER NOT NULL,
+                window_offset INTEGER NOT NULL,
+                window_size INTEGER NOT NULL,
+                series_key TEXT NOT NULL,
+                series_name_term TEXT,
+                series_slug_term TEXT,
+                player_id INTEGER NOT NULL,
+                gamer_tag TEXT,
+                weighted_win_rate REAL,
+                opponent_strength REAL,
+                home_state TEXT,
+                home_state_inferred INTEGER,
+                avg_event_entrants REAL,
+                max_event_entrants REAL,
+                large_event_share REAL,
+                latest_event_start INTEGER,
+                computed_at INTEGER NOT NULL,
+                PRIMARY KEY (
+                    state,
+                    videogame_id,
+                    months_back,
+                    window_offset,
+                    window_size,
+                    series_key,
+                    player_id
+                )
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_player_series_metrics_state
+              ON player_series_metrics(state, videogame_id, months_back, window_offset, window_size, series_key);
             """
         )
         self.conn.commit()
@@ -573,6 +607,235 @@ class SQLiteStore:
                 "large_event_share": row["large_event_share"],
                 "latest_event_start": row["latest_event_start"],
                 "computed_at": row["computed_at"],
+            }
+            for row in rows
+        ]
+
+    # --------------------------------------------------------------------- #
+    # Series metrics
+    # --------------------------------------------------------------------- #
+
+    def replace_series_metrics(
+        self,
+        *,
+        state: str,
+        videogame_id: int,
+        months_back: int,
+        window_offset: int,
+        window_size: Optional[int],
+        series_key: str,
+        series_name_term: Optional[str],
+        series_slug_term: Optional[str],
+        rows: Iterable[Dict],
+    ) -> None:
+        """Replace persisted series-scoped metrics for a given series key."""
+        now_ts = int(datetime.now(timezone.utc).timestamp())
+        normalized_state = state.upper()
+        normalized_series_key = series_key or "unknown"
+        normalized_window_size = window_size if window_size is not None else -1
+
+        with self.conn:
+            self.conn.execute(
+                """
+                DELETE FROM player_series_metrics
+                      WHERE state = ?
+                        AND videogame_id = ?
+                        AND months_back = ?
+                        AND window_offset = ?
+                        AND window_size = ?
+                        AND series_key = ?
+                """,
+                (
+                    normalized_state,
+                    int(videogame_id),
+                    int(months_back),
+                    int(window_offset),
+                    int(normalized_window_size),
+                    normalized_series_key,
+                ),
+            )
+            if not rows:
+                return
+            self.conn.executemany(
+                """
+                INSERT INTO player_series_metrics(
+                    state,
+                    videogame_id,
+                    months_back,
+                    window_offset,
+                    window_size,
+                    series_key,
+                    series_name_term,
+                    series_slug_term,
+                    player_id,
+                    gamer_tag,
+                    weighted_win_rate,
+                    opponent_strength,
+                    home_state,
+                    home_state_inferred,
+                    avg_event_entrants,
+                    max_event_entrants,
+                    large_event_share,
+                    latest_event_start,
+                    computed_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                [
+                    (
+                        normalized_state,
+                        int(videogame_id),
+                        int(months_back),
+                        int(window_offset),
+                        int(normalized_window_size),
+                        normalized_series_key,
+                        series_name_term,
+                        series_slug_term,
+                        int(row.get("player_id")),
+                        row.get("gamer_tag"),
+                        row.get("weighted_win_rate"),
+                        row.get("opponent_strength"),
+                        row.get("home_state"),
+                        _bool_to_int(row.get("home_state_inferred")),
+                        row.get("avg_event_entrants"),
+                        row.get("max_event_entrants"),
+                        row.get("large_event_share"),
+                        row.get("latest_event_start"),
+                        now_ts,
+                    )
+                    for row in rows
+                ],
+            )
+
+    def load_series_metrics(
+        self,
+        *,
+        state: str,
+        videogame_id: int,
+        months_back: int,
+        window_offset: int,
+        window_size: Optional[int],
+        series_key: str,
+        limit: Optional[int] = None,
+    ) -> List[Dict]:
+        """Return persisted metrics for a specific series key."""
+        normalized_state = state.upper()
+        normalized_series_key = series_key or "unknown"
+        normalized_window_size = window_size if window_size is not None else -1
+        query = """
+            SELECT player_id,
+                   gamer_tag,
+                   weighted_win_rate,
+                   opponent_strength,
+                   home_state,
+                   home_state_inferred,
+                   avg_event_entrants,
+                   max_event_entrants,
+                   large_event_share,
+                   latest_event_start,
+                   computed_at
+              FROM player_series_metrics
+             WHERE state = ?
+               AND videogame_id = ?
+               AND months_back = ?
+               AND window_offset = ?
+               AND window_size = ?
+               AND series_key = ?
+             ORDER BY (weighted_win_rate IS NULL),
+                      weighted_win_rate DESC,
+                      (opponent_strength IS NULL),
+                      opponent_strength DESC
+        """
+        params: List[Any] = [
+            normalized_state,
+            int(videogame_id),
+            int(months_back),
+            int(window_offset),
+            int(normalized_window_size),
+            normalized_series_key,
+        ]
+        if limit is not None and limit > 0:
+            query += " LIMIT ?"
+            params.append(int(limit))
+        rows = self.conn.execute(query, params).fetchall()
+        return [
+            {
+                "player_id": row["player_id"],
+                "gamer_tag": row["gamer_tag"],
+                "weighted_win_rate": row["weighted_win_rate"],
+                "opponent_strength": row["opponent_strength"],
+                "home_state": row["home_state"],
+                "home_state_inferred": bool(row["home_state_inferred"])
+                if row["home_state_inferred"] is not None
+                else None,
+                "avg_event_entrants": row["avg_event_entrants"],
+                "max_event_entrants": row["max_event_entrants"],
+                "large_event_share": row["large_event_share"],
+                "latest_event_start": row["latest_event_start"],
+                "computed_at": row["computed_at"],
+            }
+            for row in rows
+        ]
+
+    def find_series_keys(
+        self,
+        *,
+        state: str,
+        videogame_id: int,
+        months_back: int,
+        window_offset: int,
+        window_size: Optional[int],
+        name_contains: Optional[str] = None,
+        slug_contains: Optional[str] = None,
+        limit: Optional[int] = None,
+    ) -> List[Dict]:
+        """Return series keys matching optional name/slug substrings."""
+        normalized_state = state.upper()
+        normalized_window_size = window_size if window_size is not None else -1
+        clauses = [
+            "state = ?",
+            "videogame_id = ?",
+            "months_back = ?",
+            "window_offset = ?",
+            "window_size = ?",
+        ]
+        params: List[Any] = [
+            normalized_state,
+            int(videogame_id),
+            int(months_back),
+            int(window_offset),
+            int(normalized_window_size),
+        ]
+
+        if name_contains:
+            clauses.append("LOWER(series_name_term) LIKE ?")
+            params.append(f"%{name_contains.lower()}%")
+        if slug_contains:
+            clauses.append("LOWER(series_slug_term) LIKE ?")
+            params.append(f"%{slug_contains.lower()}%")
+
+        where = " AND ".join(clauses)
+        sql = f"""
+            SELECT series_key,
+                   series_name_term,
+                   series_slug_term,
+                   COUNT(*) AS player_rows
+              FROM player_series_metrics
+             WHERE {where}
+             GROUP BY series_key, series_name_term, series_slug_term
+             ORDER BY player_rows DESC, series_key
+        """
+        if limit is not None and limit > 0:
+            sql += " LIMIT ?"
+            params.append(int(limit))
+
+        rows = self.conn.execute(sql, params).fetchall()
+        return [
+            {
+                "series_key": row["series_key"],
+                "series_name_term": row["series_name_term"],
+                "series_slug_term": row["series_slug_term"],
+                "player_rows": row["player_rows"],
             }
             for row in rows
         ]
