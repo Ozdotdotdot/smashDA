@@ -80,11 +80,7 @@ def rank_series_for_state(
         window_offset=window_offset,
         window_size=window_size,
     )
-    try:
-        tournaments = fetch_recent_tournaments(client, filt, store=store)
-    finally:
-        if store is not None:
-            store.close()
+    tournaments = fetch_recent_tournaments(client, filt, store=store)
 
     series_map: Dict[str, Dict] = {}
     for tourney in tournaments:
@@ -167,4 +163,7 @@ def rank_series_for_state(
             selected[cand.series_key] = cand
 
     # Stable ordering: keep the original sort for determinism.
-    return [c for c in candidates if c.series_key in selected]
+    result = [c for c in candidates if c.series_key in selected]
+    if store is not None:
+        store.close()
+    return result
