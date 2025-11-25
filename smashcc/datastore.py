@@ -101,6 +101,14 @@ class SQLiteStore:
                 FOREIGN KEY (event_id) REFERENCES events(id) ON DELETE CASCADE
             );
 
+            CREATE TABLE IF NOT EXISTS tournament_series_matches (
+                tournament_id INTEGER PRIMARY KEY,
+                name_matches TEXT,
+                slug_matches TEXT,
+                last_synced INTEGER NOT NULL,
+                FOREIGN KEY (tournament_id) REFERENCES tournaments(id) ON DELETE CASCADE
+            );
+
             CREATE TABLE IF NOT EXISTS player_metrics (
                 state TEXT NOT NULL,
                 videogame_id INTEGER NOT NULL,
@@ -248,6 +256,65 @@ class SQLiteStore:
             }
             for row in rows
         ]
+
+    def save_tournament_series_matches(
+        self,
+        records: Iterable[tuple[int, Iterable[str], Iterable[str]]],
+    ) -> None:
+        """Persist per-tournament series/substring matches for later querying."""
+        now_ts = int(datetime.now(timezone.utc).timestamp())
+        payloads = []
+        for tournament_id, name_matches, slug_matches in records:
+            payloads.append(
+                (
+                    int(tournament_id),
+                    json.dumps(list(name_matches), separators=(",", ":"), ensure_ascii=False),
+                    json.dumps(list(slug_matches), separators=(",", ":"), ensure_ascii=False),
+                    now_ts,
+                )
+            )
+
+        if not payloads:
+            return
+
+        with self.conn:
+            self.conn.executemany(
+                """
+                INSERT INTO tournament_series_matches(
+                    tournament_id, name_matches, slug_matches, last_synced
+                )
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(tournament_id) DO UPDATE SET
+                    name_matches = excluded.name_matches,
+                    slug_matches = excluded.slug_matches,
+                    last_synced = excluded.last_synced
+                """,
+                payloads,
+            )
+
+    def load_tournament_series_matches(
+        self, tournament_ids: Iterable[int]
+    ) -> Dict[int, Dict[str, List[str]]]:
+        """Return stored series match metadata for the requested tournaments."""
+        ids = [int(tid) for tid in tournament_ids]
+        if not ids:
+            return {}
+        placeholders = ",".join("?" for _ in ids)
+        rows = self.conn.execute(
+            f"""
+            SELECT tournament_id, name_matches, slug_matches
+              FROM tournament_series_matches
+             WHERE tournament_id IN ({placeholders})
+            """,
+            ids,
+        ).fetchall()
+        result: Dict[int, Dict[str, List[str]]] = {}
+        for row in rows:
+            result[int(row["tournament_id"])] = {
+                "name_matches": json.loads(row["name_matches"] or "[]"),
+                "slug_matches": json.loads(row["slug_matches"] or "[]"),
+            }
+        return result
 
     # --------------------------------------------------------------------- #
     # Events

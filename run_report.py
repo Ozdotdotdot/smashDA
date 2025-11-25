@@ -56,6 +56,22 @@ def main() -> None:
         help="Only include players whose state matches one of the provided values. Use multiple times for multiple states.",
     )
     parser.add_argument(
+        "--tournament-contains",
+        action="append",
+        help=(
+            "Only include tournaments whose name contains one of these substrings "
+            "(case-insensitive). Can be provided multiple times."
+        ),
+    )
+    parser.add_argument(
+        "--tournament-slug-contains",
+        action="append",
+        help=(
+            "Only include tournaments whose slug contains one of these substrings "
+            "(case-insensitive). Can be provided multiple times."
+        ),
+    )
+    parser.add_argument(
         "--min-entrants",
         type=int,
         help="Keep players whose average event entrant count is at least this value.",
@@ -104,6 +120,8 @@ def main() -> None:
             large_event_threshold=args.large_event_threshold,
             window_offset_months=args.window_offset,
             window_size_months=args.window_size,
+            tournament_name_contains=args.tournament_contains,
+            tournament_slug_contains=args.tournament_slug_contains,
         )
         if df.empty:
             print("No players found in the requested window.")

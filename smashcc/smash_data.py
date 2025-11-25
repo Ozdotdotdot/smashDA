@@ -75,6 +75,8 @@ def fetch_recent_tournaments(
 ) -> List[Dict]:
     """Return tournaments in scope for downstream processing."""
     filt = filt or TournamentFilter()
+    name_terms = tuple(t.strip().lower() for t in (filt.name_contains or ()) if t and t.strip())
+    slug_terms = tuple(t.strip().lower() for t in (filt.slug_contains or ()) if t and t.strip())
     tournaments: List[Dict] = []
     window_start_ts, window_end_ts = filt.window_bounds()
     if store is not None:
@@ -144,11 +146,42 @@ def fetch_recent_tournaments(
         print("No local database configured; querying start.gg for recent tournaments...")
         tournaments = list(client.iter_recent_tournaments(filt))
     # Filter again in case the DB contains tournaments outside the requested window.
-    return [
-        t
-        for t in tournaments
-        if window_start_ts <= (t.get("startAt") or 0) <= window_end_ts
-    ]
+    filtered: List[Dict] = []
+    matched_records = []
+
+    def _matching_terms(value: str, terms: tuple[str, ...]) -> List[str]:
+        val = (value or "").lower()
+        return [term for term in terms if term in val]
+
+    for tournament in tournaments:
+        start_at = tournament.get("startAt") or 0
+        if not (window_start_ts <= start_at <= window_end_ts):
+            continue
+
+        name_matches = _matching_terms(tournament.get("name") or "", name_terms)
+        slug_matches = _matching_terms(tournament.get("slug") or "", slug_terms)
+        if name_terms or slug_terms:
+            if not name_matches and not slug_matches:
+                continue
+
+        tournament["_name_matches"] = name_matches
+        tournament["_slug_matches"] = slug_matches
+        filtered.append(tournament)
+        if store is not None and (name_matches or slug_matches):
+            tourney_id = tournament.get("id")
+            if tourney_id is not None:
+                matched_records.append(
+                    (
+                        int(tourney_id),
+                        name_matches,
+                        slug_matches,
+                    )
+                )
+
+    if store is not None and matched_records:
+        store.save_tournament_series_matches(matched_records)
+
+    return filtered
 
 
 def fetch_tournament_events(

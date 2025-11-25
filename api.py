@@ -14,7 +14,7 @@ import pandas as pd
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
 
-from smashcc.analysis import generate_player_metrics
+from smashcc.analysis import find_tournaments, generate_player_metrics
 from smashcc.datastore import SQLiteStore
 
 app = FastAPI(
@@ -110,6 +110,11 @@ def _parse_start_after_timestamp(start_after: Optional[str]) -> Optional[int]:
             detail=f"Invalid start_after date '{start_after}'. Expected YYYY-MM-DD.",
         ) from exc
     return int(cutoff.timestamp())
+
+
+def _normalize_terms(values: Optional[List[str]]) -> List[str]:
+    """Return lowercase, trimmed substring filters."""
+    return [v.strip().lower() for v in values or [] if v and v.strip()]
 
 
 def _apply_common_filters(
@@ -325,6 +330,17 @@ def search(
         1386,
         description="start.gg videogame identifier (Ultimate = 1386, Melee = 1).",
     ),
+    window_offset: int = Query(
+        0,
+        ge=0,
+        description="Shift the discovery window this many months into the past (0 = newest window).",
+    ),
+    window_size: Optional[int] = Query(
+        None,
+        ge=1,
+        le=24,
+        description="Override the window size in months (defaults to months_back).",
+    ),
     assume_target_main: bool = Query(
         False,
         description="Treat the target character as a main when set data is missing.",
@@ -369,6 +385,14 @@ def search(
         None,
         description="Only include players whose latest event started on or after this date (YYYY-MM-DD).",
     ),
+    tournament_contains: Optional[List[str]] = Query(
+        None,
+        description="Repeatable filter that keeps tournaments whose name contains one of these substrings.",
+    ),
+    tournament_slug_contains: Optional[List[str]] = Query(
+        None,
+        description="Repeatable filter that keeps tournaments whose slug contains one of these substrings.",
+    ),
 ) -> Dict[str, Any]:
     """
     Run the analytics pipeline and return a table of player metrics suitable for display.
@@ -386,6 +410,10 @@ def search(
             assume_target_main=assume_target_main,
             store_path=_get_store_path(),
             large_event_threshold=large_event_threshold,
+            window_offset_months=window_offset,
+            window_size_months=window_size,
+            tournament_name_contains=_normalize_terms(tournament_contains),
+            tournament_slug_contains=_normalize_terms(tournament_slug_contains),
         )
     except Exception as exc:  # pragma: no cover - protective circuit
         raise HTTPException(status_code=502, detail=str(exc)) from exc
@@ -406,6 +434,92 @@ def search(
     return {
         "state": state,
         "character": character,
+        "count": len(records),
+        "results": records,
+    }
+
+
+@app.get("/tournaments")
+def list_tournaments(
+    state: str = Query(..., description="Two-letter region/state code."),
+    months_back: int = Query(
+        6,
+        ge=1,
+        le=24,
+        description="How many months of tournaments to include.",
+    ),
+    videogame_id: int = Query(
+        1386,
+        description="start.gg videogame identifier (Ultimate = 1386, Melee = 1).",
+    ),
+    window_offset: int = Query(
+        0,
+        ge=0,
+        description="Shift the discovery window this many months into the past (0 = newest window).",
+    ),
+    window_size: Optional[int] = Query(
+        None,
+        ge=1,
+        le=24,
+        description="Override the window size in months (defaults to months_back).",
+    ),
+    limit: int = Query(
+        50,
+        ge=0,
+        le=500,
+        description="Maximum number of tournament rows to return (0 = all).",
+    ),
+    tournament_contains: Optional[List[str]] = Query(
+        None,
+        description="Repeatable filter that keeps tournaments whose name contains one of these substrings.",
+    ),
+    tournament_slug_contains: Optional[List[str]] = Query(
+        None,
+        description="Repeatable filter that keeps tournaments whose slug contains one of these substrings.",
+    ),
+) -> Dict[str, Any]:
+    """Return tournaments in the requested window, optionally filtered by series name/slug."""
+    token = os.getenv("STARTGG_API_TOKEN")
+    if not token:
+        raise HTTPException(status_code=500, detail="Missing STARTGG_API_TOKEN")
+
+    try:
+        tournaments = find_tournaments(
+            state=state,
+            months_back=months_back,
+            videogame_id=videogame_id,
+            store_path=_get_store_path(),
+            window_offset_months=window_offset,
+            window_size_months=window_size,
+            tournament_name_contains=_normalize_terms(tournament_contains),
+            tournament_slug_contains=_normalize_terms(tournament_slug_contains),
+        )
+    except Exception as exc:  # pragma: no cover - protective circuit
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    limited = tournaments if limit == 0 else tournaments[:limit]
+    records = []
+    for tourney in limited:
+        records.append(
+            {
+                "id": tourney.get("id"),
+                "slug": tourney.get("slug"),
+                "name": tourney.get("name"),
+                "city": tourney.get("city"),
+                "state": tourney.get("addrState") or tourney.get("state"),
+                "country": tourney.get("addrCountry"),
+                "start_at": tourney.get("startAt"),
+                "end_at": tourney.get("endAt"),
+                "num_attendees": tourney.get("numAttendees"),
+                "name_matches": tourney.get("_name_matches") or [],
+                "slug_matches": tourney.get("_slug_matches") or [],
+            }
+        )
+
+    return {
+        "state": state,
+        "videogame_id": videogame_id,
+        "months_back": months_back,
         "count": len(records),
         "results": records,
     }

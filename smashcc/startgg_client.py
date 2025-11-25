@@ -57,6 +57,8 @@ class TournamentFilter:
     window_size: Optional[int] = None
     start_ts_override: Optional[int] = None
     end_ts_override: Optional[int] = None
+    name_contains: Optional[tuple[str, ...]] = None
+    slug_contains: Optional[tuple[str, ...]] = None
 
     def window_months(self) -> int:
         """Return the number of months covered by the window."""

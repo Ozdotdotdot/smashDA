@@ -65,6 +65,7 @@ Note: values vary depending on the tournaments in scope.
 - `--months-back`: Rolling tournament discovery window (default `6`).
 - `--window-offset`: Shift the window into the past without changing its size (e.g., `--window-size 1 --window-offset 2` fetches tournaments from 2–3 months ago so you can warm the cache chunk-by-chunk).
 - `--window-size`: Override the window length in months (defaults to `--months-back`). Pair with `--window-offset` to iterate through month slices.
+- `--tournament-contains` / `--tournament-slug-contains`: Only include tournaments whose name or slug contains one of the provided substrings (repeatable; case-insensitive). Handy for series-specific reports like “Battle City” or “4o4”.
 - `--assume-target-main`: When a player has zero logged sets for the character, treat the target character as their main (assigns win rates from overall performance).
 - `--filter-state`: Include only players whose home state (explicit or inferred) matches one of the provided codes. Repeat the flag to allow multiple states.
 - `--min-entrants` / `--max-entrants`: Restrict players based on the average size of their events.
@@ -119,6 +120,7 @@ Each invocation updates the local `.cache/startgg/smash.db` store without commit
 ## Working with the metrics elsewhere
 
 - Import `generate_player_metrics` or `generate_character_report` directly to consume DataFrames in notebooks or other scripts.
+- Use `find_tournaments` for quick, in-notebook discovery of tournaments that match a series name/slug (e.g., `"battle city"` or `"4o4"`) before pulling the corresponding player metrics.
 - Visualizations now ship with a Voilà-ready dashboard under `Visualizer.ipynb`. Launch it with `voila Visualizer.ipynb --port 8866` to expose controls for game/state/month filters, entrant thresholds (average, max-event, large-event share), adjustable “large” definitions, plus axis dropdowns (swap between weighted win rate, opponent strength, seed delta, upset rate, etc.). Click **Fetch metrics** to refresh the underlying DataFrame and the scatter plot/table update instantly.
 - The first run hydrates a SQLite database at `.cache/startgg/smash.db` that stores tournaments, events, and per-event payloads. Follow-up runs read straight from the database (and only re-sync from start.gg once a week or when the date window expands), so you can explore older tournaments offline. Delete the file if you ever want to rebuild it from scratch, or pass `use_store=False` to `generate_player_metrics` for ephemeral environments.
 - Raw GraphQL responses are no longer cached as JSON when the SQLite store is enabled. If you need the old behavior (e.g., for debugging schema changes), pass `use_store=False` or `use_cache=True` explicitly to `generate_player_metrics` to re-enable the hashed `.cache/startgg/*.json` snapshots (those still auto-refresh every seven days and archive the previous payload).
@@ -137,6 +139,7 @@ uvicorn api:app --host 0.0.0.0 --port 8000
 - `GET /health` – returns `{"ok": true}`; useful for load balancers and tunnels.
 - `GET /precomputed` – serves cached weighted win rate/opponent strength rows (see above section).
 - `GET /search` – runs the analytics pipeline and returns the top N player rows.
+- `GET /tournaments` – returns tournaments in a window, optionally filtered by name/slug substrings (series search).
 
 ### Rate limiting
 

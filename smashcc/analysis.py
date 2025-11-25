@@ -27,6 +27,8 @@ def generate_player_metrics(
     large_event_threshold: int = 32,
     window_offset_months: int = 0,
     window_size_months: Optional[int] = None,
+    tournament_name_contains: Optional[list[str]] = None,
+    tournament_slug_contains: Optional[list[str]] = None,
 ) -> pd.DataFrame:
     """
     Run the full data pipeline and return a DataFrame with per-player metrics.
@@ -59,6 +61,8 @@ def generate_player_metrics(
         months_back=months_back,
         window_offset=window_offset_months,
         window_size=window_size_months,
+        name_contains=tuple(tournament_name_contains or ()),
+        slug_contains=tuple(tournament_slug_contains or ()),
     )
     try:
         tournaments = fetch_recent_tournaments(client, filt, store=store)
@@ -91,6 +95,8 @@ def generate_character_report(
     large_event_threshold: int = 32,
     window_offset_months: int = 0,
     window_size_months: Optional[int] = None,
+    tournament_name_contains: Optional[list[str]] = None,
+    tournament_slug_contains: Optional[list[str]] = None,
 ) -> pd.DataFrame:
     """
     Backwards-compatible wrapper that filters the metrics DataFrame to players
@@ -108,6 +114,8 @@ def generate_character_report(
         large_event_threshold=large_event_threshold,
         window_offset_months=window_offset_months,
         window_size_months=window_size_months,
+        tournament_name_contains=tournament_name_contains,
+        tournament_slug_contains=tournament_slug_contains,
     )
     if df.empty or character is None:
         return df
@@ -186,8 +194,43 @@ def precompute_state_metrics(
     return len(records)
 
 
+def find_tournaments(
+    state: str = "GA",
+    months_back: int = 6,
+    videogame_id: int = 1386,
+    *,
+    use_store: bool = True,
+    store_path: Optional[Path] = None,
+    window_offset_months: int = 0,
+    window_size_months: Optional[int] = None,
+    tournament_name_contains: Optional[list[str]] = None,
+    tournament_slug_contains: Optional[list[str]] = None,
+) -> list[dict]:
+    """
+    Discover tournaments within the requested window, optionally filtered by name/slug substrings.
+    """
+    client = StartGGClient(use_cache=not use_store)
+    store: Optional[SQLiteStore] = SQLiteStore(store_path) if use_store else None
+    filt = TournamentFilter(
+        state=state,
+        videogame_id=videogame_id,
+        months_back=months_back,
+        window_offset=window_offset_months,
+        window_size=window_size_months,
+        name_contains=tuple(tournament_name_contains or ()),
+        slug_contains=tuple(tournament_slug_contains or ()),
+    )
+    try:
+        tournaments = fetch_recent_tournaments(client, filt, store=store)
+    finally:
+        if store is not None:
+            store.close()
+    return tournaments
+
+
 __all__ = [
     "generate_player_metrics",
     "generate_character_report",
     "precompute_state_metrics",
+    "find_tournaments",
 ]
