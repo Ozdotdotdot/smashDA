@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Dict, List, Optional
 
 from .datastore import SQLiteStore
-from .smash_data import fetch_recent_tournaments
+from .smash_data import fetch_recent_tournaments, fetch_tournament_events, is_singles_event
 from .startgg_client import StartGGClient, TournamentFilter
 
 
@@ -59,19 +59,20 @@ def rank_series_for_state(
     top_n: int = 5,
     min_max_attendees: int = 32,
     min_event_count: int = 3,
-    use_cache: bool = False,
+    use_cache: bool = True,
 ) -> List[SeriesCandidate]:
     """
     Analyze tournaments in the cached window and return ranked series candidates.
 
     Selection logic:
-        * Compute per-series totals (by normalized name/slug token) for the window.
+        * Compute per-series totals for singles events matching the videogame_id
+          (using event.numEntrants).
         * Include the top N by total attendees.
-        * Also include any series whose max attendees >= min_max_attendees
+        * Also include any series whose max entrants >= min_max_attendees
           OR whose event count >= min_event_count.
     """
     client = StartGGClient(use_cache=use_cache)
-    store: Optional[SQLiteStore] = SQLiteStore(store_path) if store_path or use_cache else None
+    store: Optional[SQLiteStore] = SQLiteStore(store_path)
     filt = TournamentFilter(
         state=state,
         videogame_id=videogame_id,
@@ -95,6 +96,24 @@ def rank_series_for_state(
         series_key = slug_term or name_term
         if series_key is None:
             series_key = str(tid)
+        # Load events to derive entrant counts for the target game singles events.
+        events = store.load_events(tid) if store is not None else []
+        if not events:
+            events = fetch_tournament_events(client, int(tid), store=store)
+        matching_events = [
+            e
+            for e in events
+            if is_singles_event(e) and str((e.get("videogame") or {}).get("id")) == str(videogame_id)
+        ]
+        if not matching_events:
+            continue
+        total_entrants = 0
+        max_entrants = 0
+        for event in matching_events:
+            entrants = int(event.get("numEntrants") or 0)
+            total_entrants += entrants
+            max_entrants = max(max_entrants, entrants)
+
         entry = series_map.setdefault(
             series_key,
             {
@@ -109,10 +128,9 @@ def rank_series_for_state(
             },
         )
         entry["tournaments"].append(int(tid))
-        entry["event_count"] += 1
-        entrants = int(tourney.get("numAttendees") or 0)
-        entry["total_attendees"] += entrants
-        entry["max_attendees"] = max(entry["max_attendees"], entrants)
+        entry["event_count"] += len(matching_events)
+        entry["total_attendees"] += total_entrants
+        entry["max_attendees"] = max(entry["max_attendees"], max_entrants)
 
     candidates: List[SeriesCandidate] = []
     for key, data in series_map.items():
