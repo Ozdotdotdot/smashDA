@@ -733,11 +733,13 @@ def precomputed_series(
 
     limited_df = df if limit == 0 else df.head(limit)
     records: List[Dict[str, Any]] = limited_df.to_dict(orient="records")
+    resolved_label = resolved.get("series_name_term") or resolved.get("series_slug_term") or resolved["series_key"]
     return {
         "state": state,
         "series_key": resolved["series_key"],
         "series_name_term": resolved.get("series_name_term"),
         "series_slug_term": resolved.get("series_slug_term"),
+        "resolved_label": resolved_label,
         "months_back": months_back,
         "videogame_id": videogame_id,
         "count": len(records),
