@@ -127,25 +127,48 @@ class StartGGClient:
                 with cache_path.open("r", encoding="utf-8") as fp:
                     return json.load(fp)
 
+        timeout_retries = max(0, int(os.getenv("SMASHCC_TIMEOUT_RETRIES", "10")))
+        prompt_on_timeout = os.getenv("SMASHCC_TIMEOUT_PROMPT", "").lower() in {"1", "true", "yes", "y"}
         headers = {
             "Authorization": f"Bearer {self._token}",
             "Content-Type": "application/json",
         }
         payload = {"query": query, "variables": variables or {}}
-        attempt = 0
-        max_attempts = 10
+        rate_attempt = 0
+        max_rate_attempts = 10
+        timeout_attempt = 0
 
         while True:
-            response = self.session.post(self.api_url, json=payload, headers=headers, timeout=30)
+            try:
+                response = self.session.post(self.api_url, json=payload, headers=headers, timeout=30)
+            except (requests.exceptions.Timeout, requests.exceptions.ReadTimeout) as exc:
+                if timeout_attempt < timeout_retries:
+                    wait_seconds = min(60, 2 ** timeout_attempt)
+                    print(
+                        f"Request to start.gg timed out (attempt {timeout_attempt + 1}/{timeout_retries}); "
+                        f"retrying in {wait_seconds:.0f}s..."
+                    )
+                    if prompt_on_timeout:
+                        choice = input("Press Enter to retry or 's' to skip this request: ").strip().lower()
+                        if choice == "s":
+                            raise RuntimeError("User skipped request after timeout.") from exc
+                    time.sleep(wait_seconds)
+                    timeout_attempt += 1
+                    continue
+                raise
 
-            if response.status_code == 429 and attempt < max_attempts:
+            if response.status_code == 429 and rate_attempt < max_rate_attempts:
                 retry_after = response.headers.get("Retry-After")
                 try:
                     wait_seconds = float(retry_after)
                 except (TypeError, ValueError):
-                    wait_seconds = min(60, 2 ** attempt)
+                    wait_seconds = min(60, 2 ** rate_attempt)
+                print(
+                    f"Received 429 from start.gg (attempt {rate_attempt + 1}/{max_rate_attempts}); "
+                    f"retrying in {wait_seconds:.0f}s..."
+                )
                 time.sleep(wait_seconds)
-                attempt += 1
+                rate_attempt += 1
                 continue
 
             response.raise_for_status()
