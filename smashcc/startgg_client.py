@@ -141,17 +141,21 @@ class StartGGClient:
         while True:
             try:
                 response = self.session.post(self.api_url, json=payload, headers=headers, timeout=30)
-            except (requests.exceptions.Timeout, requests.exceptions.ReadTimeout) as exc:
+            except (
+                requests.exceptions.Timeout,
+                requests.exceptions.ReadTimeout,
+                requests.exceptions.ConnectionError,
+            ) as exc:
                 if timeout_attempt < timeout_retries:
                     wait_seconds = min(60, 2 ** timeout_attempt)
                     print(
-                        f"Request to start.gg timed out (attempt {timeout_attempt + 1}/{timeout_retries}); "
+                        f"Request to start.gg failed/ timed out (attempt {timeout_attempt + 1}/{timeout_retries}); "
                         f"retrying in {wait_seconds:.0f}s..."
                     )
                     if prompt_on_timeout:
                         choice = input("Press Enter to retry or 's' to skip this request: ").strip().lower()
                         if choice == "s":
-                            raise RuntimeError("User skipped request after timeout.") from exc
+                            raise RuntimeError("User skipped request after timeout/connection error.") from exc
                     time.sleep(wait_seconds)
                     timeout_attempt += 1
                     continue
