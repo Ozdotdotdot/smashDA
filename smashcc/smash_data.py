@@ -72,6 +72,7 @@ def fetch_recent_tournaments(
     client: StartGGClient,
     filt: Optional[TournamentFilter] = None,
     store: Optional[SQLiteStore] = None,
+    suppress_logs: bool = False,
 ) -> List[Dict]:
     """Return tournaments in scope for downstream processing."""
     filt = filt or TournamentFilter()
@@ -80,7 +81,8 @@ def fetch_recent_tournaments(
     tournaments: List[Dict] = []
     window_start_ts, window_end_ts = filt.window_bounds()
     if store is not None:
-        print("Checking local database for cached tournaments...")
+        if not suppress_logs:
+            print("Checking local database for cached tournaments...")
         tournaments = store.load_tournaments(
             filt.state,
             filt.videogame_id,
@@ -89,9 +91,9 @@ def fetch_recent_tournaments(
         )
         coverage_missing = False
         discovery_stale = store.discovery_is_stale(filt.state, filt.videogame_id)
-        if tournaments:
+        if tournaments and not suppress_logs:
             print(f"Found {len(tournaments)} tournament(s) in local database.")
-        else:
+        elif not tournaments and not suppress_logs:
             print("No cached tournaments found in local database.")
         if tournaments:
             start_at_values = [t.get("startAt") or 0 for t in tournaments]
@@ -117,12 +119,14 @@ def fetch_recent_tournaments(
                 cutoff_date = datetime.fromtimestamp(delta_start_ts, tz=timezone.utc).strftime(
                     "%Y-%m-%d"
                 )
-                print(
-                    f"Local data is stale; querying start.gg for tournaments after {cutoff_date} (delta only)..."
-                )
+                if not suppress_logs:
+                    print(
+                        f"Local data is stale; querying start.gg for tournaments after {cutoff_date} (delta only)..."
+                    )
                 delta_query = True
             else:
-                print("Local data missing or coverage incomplete; querying start.gg for recent tournaments...")
+                if not suppress_logs:
+                    print("Local data missing or coverage incomplete; querying start.gg for recent tournaments...")
 
             fresh = list(client.iter_recent_tournaments(delta_filter))
             if fresh:
@@ -143,7 +147,8 @@ def fetch_recent_tournaments(
         else:
             print("Using cached tournaments from local database.")
     else:
-        print("No local database configured; querying start.gg for recent tournaments...")
+        if not suppress_logs:
+            print("No local database configured; querying start.gg for recent tournaments...")
         tournaments = list(client.iter_recent_tournaments(filt))
     # Filter again in case the DB contains tournaments outside the requested window.
     filtered: List[Dict] = []

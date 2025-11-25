@@ -30,6 +30,7 @@ def generate_player_metrics(
     window_size_months: Optional[int] = None,
     tournament_name_contains: Optional[list[str]] = None,
     tournament_slug_contains: Optional[list[str]] = None,
+    suppress_logs: bool = False,
 ) -> pd.DataFrame:
     """
     Run the full data pipeline and return a DataFrame with per-player metrics.
@@ -66,7 +67,7 @@ def generate_player_metrics(
         slug_contains=tuple(tournament_slug_contains or ()),
     )
     try:
-        tournaments = fetch_recent_tournaments(client, filt, store=store)
+        tournaments = fetch_recent_tournaments(client, filt, store=store, suppress_logs=suppress_logs)
         player_results = collect_player_results_for_tournaments(
             client,
             tournaments,
@@ -98,6 +99,7 @@ def generate_character_report(
     window_size_months: Optional[int] = None,
     tournament_name_contains: Optional[list[str]] = None,
     tournament_slug_contains: Optional[list[str]] = None,
+    suppress_logs: bool = False,
 ) -> pd.DataFrame:
     """
     Backwards-compatible wrapper that filters the metrics DataFrame to players
@@ -117,6 +119,7 @@ def generate_character_report(
         window_size_months=window_size_months,
         tournament_name_contains=tournament_name_contains,
         tournament_slug_contains=tournament_slug_contains,
+        suppress_logs=suppress_logs,
     )
     if df.empty or character is None:
         return df
@@ -223,6 +226,7 @@ def precompute_series_metrics(
         window_size_months=window_size_months,
         tournament_name_contains=[series_name_term] if series_name_term else None,
         tournament_slug_contains=[series_slug_term] if series_slug_term else None,
+        suppress_logs=True,
     )
     if df.empty:
         return 0

@@ -80,7 +80,7 @@ def rank_series_for_state(
         window_offset=window_offset,
         window_size=window_size,
     )
-    tournaments = fetch_recent_tournaments(client, filt, store=store)
+    tournaments = fetch_recent_tournaments(client, filt, store=store, suppress_logs=True)
 
     series_map: Dict[str, Dict] = {}
     for tourney in tournaments:
