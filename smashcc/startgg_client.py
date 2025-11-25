@@ -138,6 +138,8 @@ class StartGGClient:
         max_rate_attempts = 10
         timeout_attempt = 0
 
+        skip_on_failure = os.getenv("SMASHCC_SKIP_ON_FAILURE", "").lower() in {"1", "true", "yes", "y"}
+
         while True:
             try:
                 response = self.session.post(self.api_url, json=payload, headers=headers, timeout=30)
@@ -159,6 +161,9 @@ class StartGGClient:
                     time.sleep(wait_seconds)
                     timeout_attempt += 1
                     continue
+                if skip_on_failure:
+                    print("Skipping request after exhausting retries.")
+                    raise RuntimeError("Skipping request after retries.") from exc
                 raise
 
             if response.status_code == 429 and rate_attempt < max_rate_attempts:
