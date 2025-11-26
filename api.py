@@ -199,14 +199,17 @@ def _find_series(
     series_key: Optional[str],
     tournament_contains: Optional[List[str]],
     tournament_slug_contains: Optional[List[str]],
-) -> Dict[str, Any]:
-    """Resolve a series key using provided hints."""
+    allow_multi: bool = False,
+) -> List[Dict[str, Any]]:
+    """Resolve one or more series keys using provided hints."""
     if series_key:
-        return {
-            "series_key": series_key,
-            "series_name_term": None,
-            "series_slug_term": None,
-        }
+        return [
+            {
+                "series_key": series_key,
+                "series_name_term": None,
+                "series_slug_term": None,
+            }
+        ]
     name_term = (tournament_contains or [None])[0]
     slug_term = (tournament_slug_contains or [None])[0]
     if not name_term and not slug_term:
@@ -224,24 +227,26 @@ def _find_series(
             window_size=window_size,
             name_contains=name_term,
             slug_contains=slug_term,
-            limit=5,
+            limit=20,
         )
     finally:
         store.close()
     if not matches:
         raise HTTPException(status_code=404, detail="No precomputed series matched the provided terms.")
-    if len(matches) > 1:
+    if len(matches) > 1 and not allow_multi:
         options = [m["series_key"] for m in matches]
         raise HTTPException(
             status_code=412,
             detail=f"Multiple precomputed series match those terms. Specify one via series_key. Options: {options}",
         )
-    match = matches[0]
-    return {
-        "series_key": match["series_key"],
-        "series_name_term": match.get("series_name_term"),
-        "series_slug_term": match.get("series_slug_term"),
-    }
+    return [
+        {
+            "series_key": match["series_key"],
+            "series_name_term": match.get("series_name_term"),
+            "series_slug_term": match.get("series_slug_term"),
+        }
+        for match in matches
+    ]
 
 
 def _require_columns(df: pd.DataFrame, required: Dict[str, str]) -> None:
@@ -642,6 +647,10 @@ def precomputed_series(
         None,
         description="Repeatable filter that matches series whose slug term contains this substring.",
     ),
+    allow_multi: bool = Query(
+        False,
+        description="When true, return all precomputed series matching the terms instead of requiring a single match.",
+    ),
     limit: int = Query(
         50,
         ge=0,
@@ -679,7 +688,7 @@ def precomputed_series(
     ),
 ) -> Dict[str, Any]:
     """Serve precomputed series-scoped metrics from SQLite."""
-    resolved = _find_series(
+    resolved_matches = _find_series(
         state=state,
         videogame_id=videogame_id,
         months_back=months_back,
@@ -688,24 +697,51 @@ def precomputed_series(
         series_key=series_key,
         tournament_contains=_normalize_terms(tournament_contains),
         tournament_slug_contains=_normalize_terms(tournament_slug_contains),
+        allow_multi=allow_multi,
     )
 
-    rows = _load_series_metrics(
-        state=state,
-        months_back=months_back,
-        videogame_id=videogame_id,
-        window_offset=window_offset,
-        window_size=window_size,
-        series_key=resolved["series_key"],
-        limit=None if limit == 0 else limit,
+    filters_requested = any(
+        [
+            bool(filter_state),
+            min_entrants is not None,
+            max_entrants is not None,
+            min_max_event_entrants is not None,
+            min_large_event_share is not None,
+            start_after is not None,
+        ]
     )
-    if not rows:
+    store_limit = None if (limit == 0 or filters_requested or allow_multi) else limit
+
+    annotated_rows: List[Dict[str, Any]] = []
+    for resolved in resolved_matches:
+        rows = _load_series_metrics(
+            state=state,
+            months_back=months_back,
+            videogame_id=videogame_id,
+            window_offset=window_offset,
+            window_size=window_size,
+            series_key=resolved["series_key"],
+            limit=store_limit,
+        )
+        for row in rows:
+            row = dict(row)
+            row["series_key"] = resolved["series_key"]
+            row["series_name_term"] = resolved.get("series_name_term")
+            row["series_slug_term"] = resolved.get("series_slug_term")
+            row["series_label"] = (
+                resolved.get("series_name_term")
+                or resolved.get("series_slug_term")
+                or resolved["series_key"]
+            )
+            annotated_rows.append(row)
+
+    if not annotated_rows:
         raise HTTPException(
             status_code=404,
             detail="No precomputed series metrics found for the requested parameters.",
         )
 
-    df = pd.DataFrame(rows)
+    df = pd.DataFrame(annotated_rows)
     start_after_ts = _parse_start_after_timestamp(start_after)
     required_columns: Dict[str, str] = {}
     if filter_state:
@@ -733,15 +769,31 @@ def precomputed_series(
 
     limited_df = df if limit == 0 else df.head(limit)
     records: List[Dict[str, Any]] = limited_df.to_dict(orient="records")
-    resolved_label = resolved.get("series_name_term") or resolved.get("series_slug_term") or resolved["series_key"]
-    return {
+    response: Dict[str, Any] = {
         "state": state,
-        "series_key": resolved["series_key"],
-        "series_name_term": resolved.get("series_name_term"),
-        "series_slug_term": resolved.get("series_slug_term"),
-        "resolved_label": resolved_label,
         "months_back": months_back,
         "videogame_id": videogame_id,
         "count": len(records),
         "results": records,
     }
+
+    if allow_multi and len(resolved_matches) > 1:
+        response["series_keys"] = [m["series_key"] for m in resolved_matches]
+        response["resolved_labels"] = [
+            m.get("series_name_term") or m.get("series_slug_term") or m["series_key"]
+            for m in resolved_matches
+        ]
+    else:
+        resolved = resolved_matches[0]
+        response.update(
+            {
+                "series_key": resolved["series_key"],
+                "series_name_term": resolved.get("series_name_term"),
+                "series_slug_term": resolved.get("series_slug_term"),
+                "resolved_label": resolved.get("series_name_term")
+                or resolved.get("series_slug_term")
+                or resolved["series_key"],
+            }
+        )
+
+    return response
