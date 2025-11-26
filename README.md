@@ -173,6 +173,8 @@ Filtering happens after the rows are pulled from SQLite, so you can request gene
 | `months_back` | optional, default `6` | Rolling discovery window. |
 | `videogame_id` | optional, default `1386` | start.gg game ID (`1386` Ultimate, `1` Melee). |
 | `limit` | optional, default `25` | Maximum rows to return (`0` returns all rows). |
+| `tournament_contains` | optional, repeatable | Only include tournaments whose name contains one of these substrings (case-insensitive). |
+| `tournament_slug_contains` | optional, repeatable | Only include tournaments whose slug contains one of these substrings (case-insensitive). |
 | `large_event_threshold` | optional, default `32` | Entrant count that defines “large” when computing shares. |
 | `assume_target_main` | optional, default `false` | Backfill character stats when sets are missing. |
 | `character` | optional, default `"Marth"` | Legacy field; leave at default if you only care about overall stats. |
@@ -190,6 +192,7 @@ Example: pull three months of Georgia data and keep the top 50 rows.
 curl -G \
   --data-urlencode "state=GA" \
   --data-urlencode "months_back=3" \
+  --data-urlencode "tournament_contains=battle city" \
   --data-urlencode "limit=50" \
   http://localhost:8000/search
 ```
@@ -205,6 +208,16 @@ curl -G \
   --data-urlencode "filter_state=AL" \
   --data-urlencode "min_entrants=32" \
   http://localhost:8000/search
+```
+
+Example using precomputed series metrics (requires running `precompute_metrics.py --auto-series` first). The `tournament_contains`/`tournament_slug_contains` terms are used to resolve a series key that was persisted during the auto-series pass:
+
+```bash
+curl -G \
+  --data-urlencode "state=GA" \
+  --data-urlencode "months_back=3" \
+  --data-urlencode "tournament_contains=battle city" \
+  http://localhost:8000/precomputed_series
 ```
 
 Response shape:
