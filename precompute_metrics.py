@@ -96,26 +96,14 @@ def main() -> None:
         action="store_true",
         help=(
             "Automatically select series per state and precompute series-scoped metrics "
-            "(top N by attendees plus any that meet size/count thresholds)."
+            "(top N by total attendees; defaults to 25)."
         ),
     )
     parser.add_argument(
         "--top-n-per-state",
         type=int,
-        default=5,
-        help="How many series per state to always include (ranked by total attendees).",
-    )
-    parser.add_argument(
-        "--min-series-max-entrants",
-        type=int,
-        default=32,
-        help="Include any series whose single largest event meets or exceeds this entrant count.",
-    )
-    parser.add_argument(
-        "--min-series-events",
-        type=int,
-        default=3,
-        help="Include any series with at least this many tournaments in the window.",
+        default=25,
+        help="How many series per state to include (largest by total attendees).",
     )
     args = parser.parse_args()
 
@@ -162,8 +150,6 @@ def main() -> None:
                 window_size_months=args.window_size,
                 store_path=store_path,
                 top_n=args.top_n_per_state,
-                min_max_attendees=args.min_series_max_entrants,
-                min_event_count=args.min_series_events,
             )
             if not candidates:
                 print("    No series candidates found for this state/window.")

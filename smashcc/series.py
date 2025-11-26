@@ -56,20 +56,14 @@ def rank_series_for_state(
     window_offset: int = 0,
     window_size: Optional[int] = None,
     store_path: Optional[Path] = None,
-    top_n: int = 5,
-    min_max_attendees: int = 32,
-    min_event_count: int = 3,
+    top_n: int = 25,
+    min_max_attendees: int = 0,
+    min_event_count: int = 0,
     use_cache: bool = True,
 ) -> List[SeriesCandidate]:
     """
-    Analyze tournaments in the cached window and return ranked series candidates.
-
-    Selection logic:
-        * Compute per-series totals for singles events matching the videogame_id
-          (using event.numEntrants).
-        * Include the top N by total attendees.
-        * Also include any series whose max entrants >= min_max_attendees
-          OR whose event count >= min_event_count.
+    Analyze tournaments in the cached window and return ranked series candidates,
+    keeping only the largest series (by total attendees) for the window.
     """
     client = StartGGClient(use_cache=use_cache)
     store: Optional[SQLiteStore] = SQLiteStore(store_path)
@@ -150,20 +144,7 @@ def rank_series_for_state(
         reverse=True,
     )
 
-    selected: Dict[str, SeriesCandidate] = {}
-    for cand in candidates[: max(0, int(top_n))]:
-        selected[cand.series_key] = cand
-
-    for cand in candidates:
-        if cand.series_key in selected:
-            continue
-        if cand.max_attendees >= max(0, int(min_max_attendees)) or cand.event_count >= max(
-            1, int(min_event_count)
-        ):
-            selected[cand.series_key] = cand
-
-    # Stable ordering: keep the original sort for determinism.
-    result = [c for c in candidates if c.series_key in selected]
+    result = candidates[: max(0, int(top_n))]
     if store is not None:
         store.close()
     return result

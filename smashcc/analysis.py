@@ -270,9 +270,9 @@ def auto_select_series(
     window_offset_months: int = 0,
     window_size_months: Optional[int] = None,
     store_path: Optional[Path] = None,
-    top_n: int = 5,
-    min_max_attendees: int = 32,
-    min_event_count: int = 3,
+    top_n: int = 25,
+    min_max_attendees: int = 0,
+    min_event_count: int = 0,
 ) -> list[SeriesCandidate]:
     """Return ranked series candidates for a state using cached tournaments."""
     return rank_series_for_state(
