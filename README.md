@@ -102,6 +102,10 @@ Parameters mirror the CLI flags (`state`, `months_back`, `videogame_id`, `charac
 
 You can now also apply the same filters exposed by the live `/search` endpoint—`filter_state`, entrant bounds, `min_max_event_entrants`, `min_large_event_share`, and `start_after`—so front ends can request pre-trimmed slices without rehydrating pandas. (If you precomputed metrics before this change, re-run `precompute_metrics.py` so the cached rows include the new metadata columns.)
 
+If you want to stay fully offline and only use the tournaments/events already in `.cache/startgg/smash.db`, add `--offline-only` (fails fast when data is missing instead of querying start.gg).
+
+To mirror series-scoped report slices, `precompute_metrics.py` now accepts `--tournament-contains` / `--tournament-slug-contains` (with an optional `--series-key`) and uses the same substring matching as `run_report.py`.
+
 ### Warming specific months
 
 If a bulk precompute run fails for a couple of states, run the CLI in month-sized slices to make sure SQLite contains the missing tournaments before retrying the precompute script:

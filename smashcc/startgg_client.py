@@ -95,9 +95,11 @@ class StartGGClient:
         use_cache: bool = True,
         stale_after_days: Optional[int] = 7,
         archive_stale: bool = True,
+        offline_only: bool = False,
     ) -> None:
+        self.offline_only = offline_only
         self._token = token or os.getenv("STARTGG_API_TOKEN")
-        if not self._token:
+        if not self._token and not self.offline_only:
             raise RuntimeError(
                 "STARTGG_API_TOKEN is not set; export it before running live queries."
             )
@@ -118,6 +120,8 @@ class StartGGClient:
 
     def execute(self, query: str, variables: Optional[Dict] = None) -> Dict:
         """Execute a GraphQL request, hitting the cache first when enabled."""
+        if self.offline_only:
+            raise RuntimeError("Network requests are disabled (offline_only=True).")
         cache_key = _make_cache_key(query, variables)
         cache_path = self.cache_dir / f"{cache_key}.json"
         cache_stale = False
@@ -202,6 +206,8 @@ class StartGGClient:
         Yield tournaments in the requested state/video game that fall within
         the requested window (supports offsets for backfilling older months).
         """
+        if self.offline_only:
+            raise RuntimeError("Network requests are disabled (offline_only=True).")
         window_start, window_end = filt.window_bounds()
         page = 1
 

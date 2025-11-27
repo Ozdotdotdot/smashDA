@@ -31,6 +31,7 @@ def generate_player_metrics(
     tournament_name_contains: Optional[list[str]] = None,
     tournament_slug_contains: Optional[list[str]] = None,
     suppress_logs: bool = False,
+    offline_only: bool = False,
 ) -> pd.DataFrame:
     """
     Run the full data pipeline and return a DataFrame with per-player metrics.
@@ -54,8 +55,10 @@ def generate_player_metrics(
     large_event_threshold:
         Entrant count used to flag “large” events when computing large_event_share.
     """
+    if offline_only and not use_store:
+        raise RuntimeError("offline_only requires use_store=True so cached data can be read.")
     client_use_cache = use_cache and not use_store
-    client = StartGGClient(use_cache=client_use_cache)
+    client = StartGGClient(use_cache=client_use_cache, offline_only=offline_only)
     store: Optional[SQLiteStore] = SQLiteStore(store_path) if use_store else None
     filt = TournamentFilter(
         state=state,
@@ -67,12 +70,19 @@ def generate_player_metrics(
         slug_contains=tuple(tournament_slug_contains or ()),
     )
     try:
-        tournaments = fetch_recent_tournaments(client, filt, store=store, suppress_logs=suppress_logs)
+        tournaments = fetch_recent_tournaments(
+            client,
+            filt,
+            store=store,
+            suppress_logs=suppress_logs,
+            offline_only=offline_only,
+        )
         player_results = collect_player_results_for_tournaments(
             client,
             tournaments,
             target_videogame_id=videogame_id,
             store=store,
+            offline_only=offline_only,
         )
     finally:
         if store is not None:
@@ -151,6 +161,7 @@ def precompute_state_metrics(
     large_event_threshold: int = 32,
     window_offset_months: int = 0,
     window_size_months: Optional[int] = None,
+    offline_only: bool = False,
 ) -> int:
     """
     Compute metrics for a single state and persist weighted win rate/opponent strength.
@@ -167,6 +178,7 @@ def precompute_state_metrics(
         large_event_threshold=large_event_threshold,
         window_offset_months=window_offset_months,
         window_size_months=window_size_months,
+        offline_only=offline_only,
     )
     if df.empty:
         return 0
@@ -204,6 +216,8 @@ def precompute_series_metrics(
     series_key: str,
     series_name_term: Optional[str],
     series_slug_term: Optional[str],
+    tournament_name_contains: Optional[list[str]] = None,
+    tournament_slug_contains: Optional[list[str]] = None,
     months_back: int = 6,
     videogame_id: int = 1386,
     target_character: str = "Marth",
@@ -212,8 +226,15 @@ def precompute_series_metrics(
     large_event_threshold: int = 32,
     window_offset_months: int = 0,
     window_size_months: Optional[int] = None,
+    offline_only: bool = False,
 ) -> int:
     """Compute metrics for a specific series and persist them."""
+    # Allow explicit tournament filters to mirror run_report.py semantics; fall
+    # back to the auto-discovered terms when not provided.
+    name_terms = tournament_name_contains or ([series_name_term] if series_name_term else None)
+    slug_terms = tournament_slug_contains or ([series_slug_term] if series_slug_term else None)
+    series_name_term = series_name_term or (name_terms[0] if name_terms else None)
+    series_slug_term = series_slug_term or (slug_terms[0] if slug_terms else None)
     df = generate_player_metrics(
         state=state,
         months_back=months_back,
@@ -224,9 +245,10 @@ def precompute_series_metrics(
         large_event_threshold=large_event_threshold,
         window_offset_months=window_offset_months,
         window_size_months=window_size_months,
-        tournament_name_contains=[series_name_term] if series_name_term else None,
-        tournament_slug_contains=[series_slug_term] if series_slug_term else None,
+        tournament_name_contains=name_terms,
+        tournament_slug_contains=slug_terms,
         suppress_logs=True,
+        offline_only=offline_only,
     )
     if df.empty:
         return 0
@@ -273,6 +295,7 @@ def auto_select_series(
     top_n: int = 25,
     min_max_attendees: int = 0,
     min_event_count: int = 0,
+    offline_only: bool = False,
 ) -> list[SeriesCandidate]:
     """Return ranked series candidates for a state using cached tournaments."""
     return rank_series_for_state(
@@ -285,6 +308,7 @@ def auto_select_series(
         top_n=top_n,
         min_max_attendees=min_max_attendees,
         min_event_count=min_event_count,
+        offline_only=offline_only,
     )
 
 

@@ -60,12 +60,13 @@ def rank_series_for_state(
     min_max_attendees: int = 0,
     min_event_count: int = 0,
     use_cache: bool = True,
+    offline_only: bool = False,
 ) -> List[SeriesCandidate]:
     """
     Analyze tournaments in the cached window and return ranked series candidates,
     keeping only the largest series (by total attendees) for the window.
     """
-    client = StartGGClient(use_cache=use_cache)
+    client = StartGGClient(use_cache=use_cache, offline_only=offline_only)
     store: Optional[SQLiteStore] = SQLiteStore(store_path)
     filt = TournamentFilter(
         state=state,
@@ -74,7 +75,13 @@ def rank_series_for_state(
         window_offset=window_offset,
         window_size=window_size,
     )
-    tournaments = fetch_recent_tournaments(client, filt, store=store, suppress_logs=True)
+    tournaments = fetch_recent_tournaments(
+        client,
+        filt,
+        store=store,
+        suppress_logs=True,
+        offline_only=offline_only,
+    )
 
     series_map: Dict[str, Dict] = {}
     for tourney in tournaments:
@@ -89,7 +96,12 @@ def rank_series_for_state(
         # Load events to derive entrant counts for the target game singles events.
         events = store.load_events(tid) if store is not None else []
         if not events:
-            events = fetch_tournament_events(client, int(tid), store=store)
+            events = fetch_tournament_events(
+                client,
+                int(tid),
+                store=store,
+                offline_only=offline_only,
+            )
         matching_events = [
             e
             for e in events

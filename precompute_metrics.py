@@ -4,7 +4,7 @@
 import argparse
 import os
 from pathlib import Path
-from typing import List
+from typing import List, Optional
 
 from smashcc.analysis import (
     auto_select_series,
@@ -31,6 +31,24 @@ def _resolve_states(
         return discovered
     normalized = [s.strip().upper() for s in states if s.strip()]
     return sorted(set(normalized))
+
+
+def _derive_series_key(
+    *,
+    name_terms: List[str],
+    slug_terms: List[str],
+    override: Optional[str] = None,
+) -> str:
+    """Generate a deterministic series key from provided terms."""
+    if override and override.strip():
+        return override.strip()
+    for term in [*(slug_terms or []), *(name_terms or [])]:
+        cleaned = term.strip().lower().replace(" ", "-").replace("/", "-")
+        if cleaned:
+            while "--" in cleaned:
+                cleaned = cleaned.replace("--", "-")
+            return cleaned
+    return "custom-series"
 
 
 def main() -> None:
@@ -105,12 +123,42 @@ def main() -> None:
         default=25,
         help="How many series per state to include (largest by total attendees).",
     )
+    parser.add_argument(
+        "--offline-only",
+        action="store_true",
+        help="Use cached tournaments/events only; fail if data is missing or stale and never hit start.gg.",
+    )
+    parser.add_argument(
+        "--tournament-contains",
+        dest="tournament_contains",
+        action="append",
+        help=(
+            "Only include tournaments whose name contains this substring (case-insensitive). "
+            "Repeatable; mirrors run_report.py."
+        ),
+    )
+    parser.add_argument(
+        "--tournament-slug-contains",
+        dest="tournament_slug_contains",
+        action="append",
+        help=(
+            "Only include tournaments whose slug contains this substring (case-insensitive). "
+            "Repeatable; mirrors run_report.py."
+        ),
+    )
+    parser.add_argument(
+        "--series-key",
+        help=(
+            "Optional override for the series key when using --tournament-contains/--tournament-slug-contains. "
+            "Defaults to the first provided term."
+        ),
+    )
     args = parser.parse_args()
 
     if not args.states and not args.all_states:
         parser.error("provide at least one --state or pass --all-states")
 
-    if not os.getenv("STARTGG_API_TOKEN"):
+    if not os.getenv("STARTGG_API_TOKEN") and not args.offline_only:
         parser.error("STARTGG_API_TOKEN is not set; export it before running.")
 
     store_path = Path(args.store_path) if args.store_path else None
@@ -119,6 +167,18 @@ def main() -> None:
         include_all=args.all_states,
         videogame_id=args.videogame_id,
         store_path=store_path or Path(".cache") / "startgg" / "smash.db",
+    )
+    name_terms = [t.strip() for t in args.tournament_contains or [] if t and t.strip()]
+    slug_terms = [t.strip() for t in args.tournament_slug_contains or [] if t and t.strip()]
+    manual_series = bool(name_terms or slug_terms)
+    manual_series_key = (
+        _derive_series_key(
+            name_terms=name_terms,
+            slug_terms=slug_terms,
+            override=args.series_key,
+        )
+        if manual_series
+        else None
     )
     if not states:
         print("No states found to process.")
@@ -137,9 +197,32 @@ def main() -> None:
             large_event_threshold=args.large_event_threshold,
             window_offset_months=args.window_offset,
             window_size_months=args.window_size,
+            offline_only=args.offline_only,
         )
         print(f"    Stored {row_count} players for {state}.")
         processed += 1
+        if manual_series:
+            print(
+                "    Precomputing series for provided tournament filters..."
+            )
+            series_rows = precompute_series_metrics(
+                state=state,
+                series_key=manual_series_key or "custom-series",
+                series_name_term=name_terms[0] if name_terms else None,
+                series_slug_term=slug_terms[0] if slug_terms else None,
+                tournament_name_contains=name_terms or None,
+                tournament_slug_contains=slug_terms or None,
+                months_back=args.months_back,
+                videogame_id=args.videogame_id,
+                target_character=args.character,
+                assume_target_main=args.assume_target_main,
+                store_path=store_path,
+                large_event_threshold=args.large_event_threshold,
+                window_offset_months=args.window_offset,
+                window_size_months=args.window_size,
+                offline_only=args.offline_only,
+            )
+            print(f"        Stored {series_rows} players for series '{manual_series_key}'.")
         if args.auto_series:
             print("    Selecting series candidates...")
             candidates = auto_select_series(
@@ -150,6 +233,7 @@ def main() -> None:
                 window_size_months=args.window_size,
                 store_path=store_path,
                 top_n=args.top_n_per_state,
+                offline_only=args.offline_only,
             )
             if not candidates:
                 print("    No series candidates found for this state/window.")
@@ -171,6 +255,7 @@ def main() -> None:
                     large_event_threshold=args.large_event_threshold,
                     window_offset_months=args.window_offset,
                     window_size_months=args.window_size,
+                    offline_only=args.offline_only,
                 )
                 print(f"        Stored {series_rows} players for series '{cand.series_key}'.")
 

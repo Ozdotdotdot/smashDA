@@ -73,6 +73,7 @@ def fetch_recent_tournaments(
     filt: Optional[TournamentFilter] = None,
     store: Optional[SQLiteStore] = None,
     suppress_logs: bool = False,
+    offline_only: bool = False,
 ) -> List[Dict]:
     """Return tournaments in scope for downstream processing."""
     filt = filt or TournamentFilter()
@@ -100,7 +101,14 @@ def fetch_recent_tournaments(
             earliest = min(start_at_values)
             latest = max(start_at_values)
             coverage_missing = earliest > window_start_ts or latest < window_end_ts
-        if not tournaments or discovery_stale or coverage_missing:
+        if offline_only:
+            if not suppress_logs:
+                print("Offline-only mode: using cached tournaments without refreshing from start.gg.")
+            if coverage_missing and not suppress_logs:
+                print("Warning: cached tournaments do not fully cover the requested window.")
+            if discovery_stale and not suppress_logs:
+                print("Warning: cached tournament discovery is stale.")
+        if (not tournaments or discovery_stale or coverage_missing) and not offline_only:
             delta_query = False
             delta_filter = filt
             if discovery_stale and tournaments and not coverage_missing:
@@ -147,6 +155,10 @@ def fetch_recent_tournaments(
         else:
             print("Using cached tournaments from local database.")
     else:
+        if offline_only:
+            raise RuntimeError(
+                "Offline-only mode requires a local SQLite store; provide --store-path or enable caching."
+            )
         if not suppress_logs:
             print("No local database configured; querying start.gg for recent tournaments...")
         tournaments = list(client.iter_recent_tournaments(filt))
@@ -193,12 +205,17 @@ def fetch_tournament_events(
     client: StartGGClient,
     tournament_id: int,
     store: Optional[SQLiteStore] = None,
+    offline_only: bool = False,
 ) -> List[Dict]:
     """Fetch events for a tournament, including roster sizing metadata."""
     if store is not None:
         cached_events = store.load_events(tournament_id)
         if cached_events:
             return cached_events
+    if offline_only:
+        raise RuntimeError(
+            f"Offline-only mode enabled but events for tournament {tournament_id} are not cached."
+        )
 
     query = f"""
     query TournamentEvents($tournamentId: ID!) {{
@@ -457,6 +474,7 @@ def collect_event_bundle(
     client: StartGGClient,
     event: Dict,
     store: Optional[SQLiteStore] = None,
+    offline_only: bool = False,
 ) -> EventBundle:
     """Gather seeds, standings, and sets for the provided event."""
     event_id = int(event["id"])
@@ -475,8 +493,16 @@ def collect_event_bundle(
         phase_id = phase.get("id")
         if not phase_id:
             continue
+        if offline_only:
+            raise RuntimeError(
+                f"Offline-only mode enabled but event bundle for event {event_id} is not cached."
+            )
         phase_seeds = fetch_phase_seeds(client, int(phase_id))
         seeds.extend(phase_seeds)
+    if offline_only:
+        raise RuntimeError(
+            f"Offline-only mode enabled but event bundle for event {event_id} is not cached."
+        )
     standings = fetch_event_standings(client, event_id)
     sets = fetch_event_sets(client, event_id)
     if store is not None:
@@ -718,6 +744,7 @@ def collect_player_results_for_tournaments(
     singles_only: bool = True,
     target_videogame_id: Optional[int] = None,
     store: Optional[SQLiteStore] = None,
+    offline_only: bool = False,
 ) -> List[PlayerEventResult]:
     """Collect player event results across a list of tournaments."""
     records: List[PlayerEventResult] = []
@@ -729,6 +756,7 @@ def collect_player_results_for_tournaments(
             client,
             tournament_id=int(tournament_id),
             store=store,
+            offline_only=offline_only,
         )
         for event in events:
             if singles_only and not is_singles_event(event):
@@ -738,6 +766,11 @@ def collect_player_results_for_tournaments(
                 event_game_id = event_game.get("id")
                 if str(event_game_id) != str(target_videogame_id):
                     continue
-            bundle = collect_event_bundle(client, event, store=store)
+            bundle = collect_event_bundle(
+                client,
+                event,
+                store=store,
+                offline_only=offline_only,
+            )
             records.extend(build_player_event_results(bundle))
     return records
