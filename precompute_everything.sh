@@ -12,9 +12,9 @@ echo "Using Python: $VENV_PYTHON"
 "$VENV_PYTHON" --version
 
 echo "Running precompute_metrics.py for all states (3 months back)..."
-"$VENV_PYTHON" precompute_metrics.py --all-states --months-back 3
+"$VENV_PYTHON" precompute_metrics.py --all-states --months-back 3 --offline-only
 
 echo "Running precompute_metrics.py for all states (3 months back, auto-series)..."
-"$VENV_PYTHON" precompute_metrics.py --all-states --months-back 3 --auto-series
+"$VENV_PYTHON" precompute_metrics.py --all-states --months-back 3 --auto-series --offline-only
 
 echo "Done."

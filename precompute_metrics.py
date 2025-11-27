@@ -12,6 +12,7 @@ from smashcc.analysis import (
     precompute_state_metrics,
 )
 from smashcc.datastore import SQLiteStore
+from smashcc.startgg_client import TournamentFilter
 
 
 def _resolve_states(
@@ -49,6 +50,60 @@ def _derive_series_key(
                 cleaned = cleaned.replace("--", "-")
             return cleaned
     return "custom-series"
+
+
+def _suggest_top_n_for_state(
+    *,
+    state: str,
+    videogame_id: int,
+    months_back: int,
+    window_offset_months: int,
+    window_size_months: Optional[int],
+    store_path: Path,
+    small_default: int = 25,
+    medium_default: int = 75,
+    large_default: int = 125,
+    huge_default: int = 200,
+) -> tuple[int, str]:
+    """
+    Pick a top-N cap based on cached tournament volume for the window.
+
+    Returns (top_n, reason).
+    """
+    filt = TournamentFilter(
+        state=state,
+        videogame_id=videogame_id,
+        months_back=months_back,
+        window_offset=window_offset_months,
+        window_size=window_size_months,
+    )
+    try:
+        store = SQLiteStore(store_path)
+    except Exception:
+        return small_default, "fallback (no store available)"
+    try:
+        window_start, window_end = filt.window_bounds()
+        tournaments = store.load_tournaments(
+            filt.state,
+            filt.videogame_id,
+            window_start,
+            window_end,
+        )
+        count = len(tournaments)
+    finally:
+        store.close()
+
+    state_upper = state.upper()
+    high_population_states = {"CA", "TX", "FL", "NJ", "NY"}
+    if state_upper in high_population_states:
+        return huge_default, f"population override ({state_upper})"
+    if count >= 200:
+        return huge_default, f"huge state: {count} cached tournaments"
+    if count >= 120:
+        return large_default, f"large state: {count} cached tournaments"
+    if count >= 70:
+        return medium_default, f"medium state: {count} cached tournaments"
+    return small_default, f"small state: {count} cached tournaments"
 
 
 def main() -> None:
@@ -114,14 +169,14 @@ def main() -> None:
         action="store_true",
         help=(
             "Automatically select series per state and precompute series-scoped metrics "
-            "(top N by total attendees; defaults to 25)."
+            "(top N by total attendees; defaults dynamically to 200/125/75/25 based on cached tournament volume/state)."
         ),
     )
     parser.add_argument(
         "--top-n-per-state",
         type=int,
-        default=25,
-        help="How many series per state to include (largest by total attendees).",
+        default=None,
+        help="How many series per state to include (largest by total attendees). Defaults dynamically by state size if omitted.",
     )
     parser.add_argument(
         "--offline-only",
@@ -224,6 +279,20 @@ def main() -> None:
             )
             print(f"        Stored {series_rows} players for series '{manual_series_key}'.")
         if args.auto_series:
+            resolved_top_n = args.top_n_per_state
+            if resolved_top_n is None:
+                suggested_top_n, reason = _suggest_top_n_for_state(
+                    state=state,
+                    videogame_id=args.videogame_id,
+                    months_back=args.months_back,
+                    window_offset_months=args.window_offset,
+                    window_size_months=args.window_size,
+                    store_path=store_path or Path(".cache") / "startgg" / "smash.db",
+                )
+                resolved_top_n = suggested_top_n
+                print(f"    Auto-series top N set to {resolved_top_n} ({reason}).")
+            else:
+                print(f"    Auto-series top N override: {resolved_top_n}.")
             print("    Selecting series candidates...")
             candidates = auto_select_series(
                 state=state,
@@ -232,7 +301,7 @@ def main() -> None:
                 window_offset_months=args.window_offset,
                 window_size_months=args.window_size,
                 store_path=store_path,
-                top_n=args.top_n_per_state,
+                top_n=resolved_top_n,
                 offline_only=args.offline_only,
             )
             if not candidates:
