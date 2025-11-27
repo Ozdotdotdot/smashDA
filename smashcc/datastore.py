@@ -175,6 +175,7 @@ class SQLiteStore:
         self._ensure_column("player_metrics", "max_event_entrants", "REAL")
         self._ensure_column("player_metrics", "large_event_share", "REAL")
         self._ensure_column("player_metrics", "latest_event_start", "INTEGER")
+        self._ensure_column("tournaments", "events_checked", "INTEGER")
 
     def _ensure_column(self, table: str, column: str, definition: str) -> None:
         """Add a column to an existing table if it is missing."""
@@ -357,7 +358,19 @@ class SQLiteStore:
     def save_events(self, tournament_id: int, events: Iterable[Dict]) -> None:
         """Persist event metadata for a tournament."""
         now_ts = int(datetime.now(timezone.utc).timestamp())
+        events = list(events)
         with self.conn:
+            if not events:
+                self.conn.execute(
+                    """
+                    UPDATE tournaments
+                       SET events_checked = 1,
+                           last_synced = ?
+                     WHERE id = ?
+                    """,
+                    (now_ts, int(tournament_id)),
+                )
+                return
             for event in events:
                 payload = json.dumps(event, separators=(",", ":"), ensure_ascii=False)
                 videogame = event.get("videogame") or {}
@@ -390,6 +403,15 @@ class SQLiteStore:
                         now_ts,
                     ),
                 )
+            self.conn.execute(
+                """
+                UPDATE tournaments
+                   SET events_checked = 1,
+                       last_synced = ?
+                 WHERE id = ?
+                """,
+                (now_ts, int(tournament_id)),
+            )
 
     def load_events(self, tournament_id: int) -> List[Dict]:
         """Load persisted events for a tournament."""
@@ -402,7 +424,19 @@ class SQLiteStore:
             """,
             (int(tournament_id),),
         ).fetchall()
-        return [json.loads(row["payload"]) for row in rows]
+        if rows:
+            return [json.loads(row["payload"]) for row in rows]
+        marker = self.conn.execute(
+            """
+            SELECT events_checked
+              FROM tournaments
+             WHERE id = ?
+            """,
+            (int(tournament_id),),
+        ).fetchone()
+        if marker and marker["events_checked"]:
+            return []
+        return None
 
     # --------------------------------------------------------------------- #
     # Event bundles (seeds/standings/sets)

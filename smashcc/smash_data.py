@@ -210,12 +210,13 @@ def fetch_tournament_events(
     """Fetch events for a tournament, including roster sizing metadata."""
     if store is not None:
         cached_events = store.load_events(tournament_id)
-        if cached_events:
+        if cached_events is not None:
             return cached_events
     if offline_only:
-        raise RuntimeError(
-            f"Offline-only mode enabled but events for tournament {tournament_id} are not cached."
+        print(
+            f"Warning: offline-only enabled but events for tournament {tournament_id} are not cached; skipping."
         )
+        return []
 
     query = f"""
     query TournamentEvents($tournamentId: ID!) {{
@@ -247,8 +248,8 @@ def fetch_tournament_events(
             "addrState": tournament.get("addrState"),
             "addrCountry": tournament.get("addrCountry"),
             "startAt": tournament.get("startAt"),
-        }
-    if store is not None and events:
+    }
+    if store is not None:
         store.save_events(tournament_id, events)
     return events
 
@@ -487,22 +488,19 @@ def collect_event_bundle(
                 standings=cached["standings"],
                 sets=cached["sets"],
             )
+    if offline_only:
+        print(
+            f"Warning: offline-only enabled but event bundle for event {event_id} is not cached; skipping."
+        )
+        return EventBundle(event=event, seeds=[], standings=[], sets=[])
     seeds: List[Dict] = []
     # Combine seeds across phases (usually there's at least a pools & finals phase)
     for phase in event.get("phases", []) or []:
         phase_id = phase.get("id")
         if not phase_id:
             continue
-        if offline_only:
-            raise RuntimeError(
-                f"Offline-only mode enabled but event bundle for event {event_id} is not cached."
-            )
         phase_seeds = fetch_phase_seeds(client, int(phase_id))
         seeds.extend(phase_seeds)
-    if offline_only:
-        raise RuntimeError(
-            f"Offline-only mode enabled but event bundle for event {event_id} is not cached."
-        )
     standings = fetch_event_standings(client, event_id)
     sets = fetch_event_sets(client, event_id)
     if store is not None:
