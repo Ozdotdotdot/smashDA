@@ -59,6 +59,7 @@ class TournamentFilter:
     end_ts_override: Optional[int] = None
     name_contains: Optional[tuple[str, ...]] = None
     slug_contains: Optional[tuple[str, ...]] = None
+    slug_exact: Optional[tuple[str, ...]] = None  # Exact slug match (e.g., "tournament/genesis-9")
 
     def window_months(self) -> int:
         """Return the number of months covered by the window."""

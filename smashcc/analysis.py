@@ -30,6 +30,9 @@ def generate_player_metrics(
     window_size_months: Optional[int] = None,
     tournament_name_contains: Optional[list[str]] = None,
     tournament_slug_contains: Optional[list[str]] = None,
+    tournament_slug_exact: Optional[list[str]] = None,
+    start_date_override: Optional[int] = None,
+    end_date_override: Optional[int] = None,
     suppress_logs: bool = False,
     offline_only: bool = False,
 ) -> pd.DataFrame:
@@ -68,6 +71,9 @@ def generate_player_metrics(
         window_size=window_size_months,
         name_contains=tuple(tournament_name_contains or ()),
         slug_contains=tuple(tournament_slug_contains or ()),
+        slug_exact=tuple(tournament_slug_exact or ()),
+        start_ts_override=start_date_override,
+        end_ts_override=end_date_override,
     )
     try:
         tournaments = fetch_recent_tournaments(
@@ -323,6 +329,9 @@ def find_tournaments(
     window_size_months: Optional[int] = None,
     tournament_name_contains: Optional[list[str]] = None,
     tournament_slug_contains: Optional[list[str]] = None,
+    tournament_slug_exact: Optional[list[str]] = None,
+    start_date_override: Optional[int] = None,
+    end_date_override: Optional[int] = None,
 ) -> list[dict]:
     """
     Discover tournaments within the requested window, optionally filtered by name/slug substrings.
@@ -337,6 +346,9 @@ def find_tournaments(
         window_size=window_size_months,
         name_contains=tuple(tournament_name_contains or ()),
         slug_contains=tuple(tournament_slug_contains or ()),
+        slug_exact=tuple(tournament_slug_exact or ()),
+        start_ts_override=start_date_override,
+        end_ts_override=end_date_override,
     )
     try:
         tournaments = fetch_recent_tournaments(client, filt, store=store)

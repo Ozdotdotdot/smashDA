@@ -79,6 +79,7 @@ def fetch_recent_tournaments(
     filt = filt or TournamentFilter()
     name_terms = tuple(t.strip().lower() for t in (filt.name_contains or ()) if t and t.strip())
     slug_terms = tuple(t.strip().lower() for t in (filt.slug_contains or ()) if t and t.strip())
+    slug_exact_terms = tuple(t.strip().lower() for t in (filt.slug_exact or ()) if t and t.strip())
     tournaments: List[Dict] = []
     window_start_ts, window_end_ts = filt.window_bounds()
     if store is not None:
@@ -177,12 +178,21 @@ def fetch_recent_tournaments(
 
         name_matches = _matching_terms(tournament.get("name") or "", name_terms)
         slug_matches = _matching_terms(tournament.get("slug") or "", slug_terms)
-        if name_terms or slug_terms:
-            if not name_matches and not slug_matches:
+
+        # Check for exact slug matches
+        slug_exact_match = False
+        tourney_slug = (tournament.get("slug") or "").lower()
+        if slug_exact_terms:
+            slug_exact_match = tourney_slug in slug_exact_terms
+
+        # Apply filtering logic
+        if name_terms or slug_terms or slug_exact_terms:
+            if not name_matches and not slug_matches and not slug_exact_match:
                 continue
 
         tournament["_name_matches"] = name_matches
         tournament["_slug_matches"] = slug_matches
+        tournament["_slug_exact_match"] = slug_exact_match
         filtered.append(tournament)
         if store is not None and (name_matches or slug_matches):
             tourney_id = tournament.get("id")

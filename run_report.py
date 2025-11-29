@@ -72,6 +72,22 @@ def main() -> None:
         ),
     )
     parser.add_argument(
+        "--tournament-slug",
+        action="append",
+        help=(
+            "Only include tournaments with exact slug match "
+            "(e.g., 'tournament/genesis-9'). Can be provided multiple times."
+        ),
+    )
+    parser.add_argument(
+        "--start-date",
+        help="Start of date range for tournaments (YYYY-MM-DD). Overrides months-back calculation.",
+    )
+    parser.add_argument(
+        "--end-date",
+        help="End of date range for tournaments (YYYY-MM-DD). Overrides months-back calculation.",
+    )
+    parser.add_argument(
         "--min-entrants",
         type=int,
         help="Keep players whose average event entrant count is at least this value.",
@@ -110,6 +126,24 @@ def main() -> None:
         print("STARTGG_API_TOKEN environment variable not set. Export it before running.")
         return
 
+    # Parse date range if provided
+    start_ts = None
+    end_ts = None
+    if args.start_date:
+        try:
+            start_dt = datetime.fromisoformat(args.start_date).replace(tzinfo=timezone.utc)
+            start_ts = int(start_dt.timestamp())
+        except ValueError:
+            print(f"Invalid --start-date '{args.start_date}'. Expected YYYY-MM-DD.")
+            return
+    if args.end_date:
+        try:
+            end_dt = datetime.fromisoformat(args.end_date).replace(tzinfo=timezone.utc)
+            end_ts = int(end_dt.timestamp())
+        except ValueError:
+            print(f"Invalid --end-date '{args.end_date}'. Expected YYYY-MM-DD.")
+            return
+
     try:
         df = analysis.generate_player_metrics(
             state=args.state,
@@ -122,6 +156,9 @@ def main() -> None:
             window_size_months=args.window_size,
             tournament_name_contains=args.tournament_contains,
             tournament_slug_contains=args.tournament_slug_contains,
+            tournament_slug_exact=args.tournament_slug,
+            start_date_override=start_ts,
+            end_date_override=end_ts,
         )
         if df.empty:
             print("No players found in the requested window.")

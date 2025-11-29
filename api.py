@@ -479,6 +479,18 @@ def search(
         None,
         description="Repeatable filter that keeps tournaments whose slug contains one of these substrings.",
     ),
+    tournament_slug: Optional[List[str]] = Query(
+        None,
+        description="Repeatable filter for exact slug match (e.g., 'tournament/genesis-9').",
+    ),
+    start_date: Optional[str] = Query(
+        None,
+        description="Start of date range for tournaments (YYYY-MM-DD). Overrides months_back calculation.",
+    ),
+    end_date: Optional[str] = Query(
+        None,
+        description="End of date range for tournaments (YYYY-MM-DD). Overrides months_back calculation.",
+    ),
 ) -> Dict[str, Any]:
     """
     Run the analytics pipeline and return a table of player metrics suitable for display.
@@ -486,6 +498,28 @@ def search(
     token = os.getenv("STARTGG_API_TOKEN")
     if not token:
         raise HTTPException(status_code=500, detail="Missing STARTGG_API_TOKEN")
+
+    # Parse date range if provided
+    start_ts = None
+    end_ts = None
+    if start_date:
+        try:
+            start_dt = datetime.fromisoformat(start_date).replace(tzinfo=timezone.utc)
+            start_ts = int(start_dt.timestamp())
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid start_date '{start_date}'. Expected YYYY-MM-DD.",
+            ) from exc
+    if end_date:
+        try:
+            end_dt = datetime.fromisoformat(end_date).replace(tzinfo=timezone.utc)
+            end_ts = int(end_dt.timestamp())
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid end_date '{end_date}'. Expected YYYY-MM-DD.",
+            ) from exc
 
     try:
         df = generate_player_metrics(
@@ -500,6 +534,9 @@ def search(
             window_size_months=window_size,
             tournament_name_contains=_normalize_terms(tournament_contains),
             tournament_slug_contains=_normalize_terms(tournament_slug_contains),
+            tournament_slug_exact=_normalize_terms(tournament_slug),
+            start_date_override=start_ts,
+            end_date_override=end_ts,
         )
     except Exception as exc:  # pragma: no cover - protective circuit
         raise HTTPException(status_code=502, detail=str(exc)) from exc
@@ -563,11 +600,45 @@ def list_tournaments(
         None,
         description="Repeatable filter that keeps tournaments whose slug contains one of these substrings.",
     ),
+    tournament_slug: Optional[List[str]] = Query(
+        None,
+        description="Repeatable filter for exact slug match (e.g., 'tournament/genesis-9').",
+    ),
+    start_date: Optional[str] = Query(
+        None,
+        description="Start of date range for tournaments (YYYY-MM-DD). Overrides months_back calculation.",
+    ),
+    end_date: Optional[str] = Query(
+        None,
+        description="End of date range for tournaments (YYYY-MM-DD). Overrides months_back calculation.",
+    ),
 ) -> Dict[str, Any]:
     """Return tournaments in the requested window, optionally filtered by series name/slug."""
     token = os.getenv("STARTGG_API_TOKEN")
     if not token:
         raise HTTPException(status_code=500, detail="Missing STARTGG_API_TOKEN")
+
+    # Parse date range if provided
+    start_ts = None
+    end_ts = None
+    if start_date:
+        try:
+            start_dt = datetime.fromisoformat(start_date).replace(tzinfo=timezone.utc)
+            start_ts = int(start_dt.timestamp())
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid start_date '{start_date}'. Expected YYYY-MM-DD.",
+            ) from exc
+    if end_date:
+        try:
+            end_dt = datetime.fromisoformat(end_date).replace(tzinfo=timezone.utc)
+            end_ts = int(end_dt.timestamp())
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid end_date '{end_date}'. Expected YYYY-MM-DD.",
+            ) from exc
 
     try:
         tournaments = find_tournaments(
@@ -579,6 +650,9 @@ def list_tournaments(
             window_size_months=window_size,
             tournament_name_contains=_normalize_terms(tournament_contains),
             tournament_slug_contains=_normalize_terms(tournament_slug_contains),
+            tournament_slug_exact=_normalize_terms(tournament_slug),
+            start_date_override=start_ts,
+            end_date_override=end_ts,
         )
     except Exception as exc:  # pragma: no cover - protective circuit
         raise HTTPException(status_code=502, detail=str(exc)) from exc
