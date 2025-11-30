@@ -69,3 +69,5 @@ htmlcov/
 
 # Project-specific generated files
 cheerio_*.csv
+API_QUICK_REFERENCE.md
+TOURNAMENT_FILTERING_GUIDE.md
