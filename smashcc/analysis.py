@@ -16,6 +16,54 @@ from .series import SeriesCandidate, rank_series_for_state
 from .startgg_client import StartGGClient
 
 
+def generate_player_metrics_for_tournaments(
+    tournament_slugs: list[str],
+    *,
+    videogame_id: int = 1386,
+    target_character: str = "Marth",
+    assume_target_main: bool = False,
+    use_store: bool = True,
+    store_path: Optional[Path] = None,
+    large_event_threshold: int = 32,
+    offline_only: bool = False,
+    suppress_logs: bool = False,
+) -> pd.DataFrame:
+    """
+    Compute per-player metrics scoped to an explicit list of tournament slugs.
+    Useful for slug-only API flows that do not want state/month windows.
+    """
+    client = StartGGClient(use_cache=not use_store, offline_only=offline_only)
+    store: Optional[SQLiteStore] = SQLiteStore(store_path) if use_store else None
+    try:
+        tournaments = []
+        for slug in tournament_slugs:
+            tourney = client.fetch_tournament_by_slug(slug)
+            if tourney:
+                tournaments.append(tourney)
+            elif not suppress_logs:
+                print(f"Skipping missing tournament slug: {slug}")
+        if not tournaments:
+            return pd.DataFrame()
+
+        player_results = collect_player_results_for_tournaments(
+            client,
+            tournaments,
+            target_videogame_id=videogame_id,
+            store=store,
+            offline_only=offline_only,
+        )
+    finally:
+        if store is not None:
+            store.close()
+
+    return compute_player_metrics(
+        player_results,
+        target_character=target_character,
+        assume_target_main=assume_target_main,
+        large_event_threshold=large_event_threshold,
+    )
+
+
 def generate_player_metrics(
     state: str = "GA",
     months_back: int = 6,
@@ -365,5 +413,6 @@ __all__ = [
     "precompute_series_metrics",
     "auto_select_series",
     "rank_series_for_state",
+    "generate_player_metrics_for_tournaments",
     "find_tournaments",
 ]

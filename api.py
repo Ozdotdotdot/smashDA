@@ -14,7 +14,11 @@ import pandas as pd
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
 
-from smashcc.analysis import find_tournaments, generate_player_metrics
+from smashcc.analysis import (
+    find_tournaments,
+    generate_player_metrics,
+    generate_player_metrics_for_tournaments,
+)
 from smashcc.datastore import SQLiteStore
 from smashcc.startgg_client import StartGGClient
 
@@ -777,6 +781,123 @@ def list_tournaments_by_slug(
         "count": len(records),
         "results": records,
         "missing": missing,
+        "invalid": invalid_inputs,
+    }
+
+
+@app.get("/search/by-slug")
+def search_by_slug(
+    tournament_slug: List[str] = Query(
+        ...,
+        description="Repeatable exact slug or start.gg URL (e.g., 'tournament/genesis-9').",
+    ),
+    character: str = Query(
+        "Marth",
+        description="Character to emphasise in the metrics (same semantics as /search).",
+    ),
+    videogame_id: int = Query(
+        1386,
+        description="start.gg videogame identifier (Ultimate = 1386, Melee = 1).",
+    ),
+    assume_target_main: bool = Query(
+        False,
+        description="Treat the target character as a main when set data is missing.",
+    ),
+    large_event_threshold: int = Query(
+        32,
+        ge=1,
+        description="Entrant count that defines a 'large' event for share filters.",
+    ),
+    limit: int = Query(
+        25,
+        ge=0,
+        le=200,
+        description="Maximum number of player records to return (0 = all).",
+    ),
+    filter_state: Optional[List[str]] = Query(
+        None,
+        description="Repeatable filter that keeps players whose home_state matches one of the provided codes.",
+    ),
+    min_entrants: Optional[int] = Query(
+        None,
+        ge=0,
+        description="Minimum average event entrants.",
+    ),
+    max_entrants: Optional[int] = Query(
+        None,
+        ge=0,
+        description="Maximum average event entrants.",
+    ),
+    min_max_event_entrants: Optional[int] = Query(
+        None,
+        ge=0,
+        description="Minimum entrants for a player's largest single event.",
+    ),
+    min_large_event_share: Optional[float] = Query(
+        None,
+        ge=0.0,
+        le=1.0,
+        description="Minimum fraction of events that meet the large-event threshold.",
+    ),
+    start_after: Optional[str] = Query(
+        None,
+        description="Only include players whose latest event started on or after this date (YYYY-MM-DD).",
+    ),
+) -> Dict[str, Any]:
+    """
+    Compute player metrics for one or more tournaments addressed by slug only.
+    Mirrors /search filters but skips state/month windows.
+    """
+    token = os.getenv("STARTGG_API_TOKEN")
+    if not token:
+        raise HTTPException(status_code=500, detail="Missing STARTGG_API_TOKEN")
+
+    slugs = []
+    invalid_inputs = []
+    for raw in tournament_slug:
+        slug = _extract_tournament_slug(raw)
+        if slug:
+            slugs.append(slug)
+        else:
+            invalid_inputs.append(raw)
+
+    if not slugs:
+        raise HTTPException(
+            status_code=400,
+            detail="Provide at least one tournament_slug or start.gg tournament URL.",
+        )
+
+    start_after_ts = _parse_start_after_timestamp(start_after)
+
+    try:
+        df = generate_player_metrics_for_tournaments(
+            tournament_slugs=slugs,
+            videogame_id=videogame_id,
+            target_character=character,
+            assume_target_main=assume_target_main,
+            store_path=_get_store_path(),
+            large_event_threshold=large_event_threshold,
+        )
+    except Exception as exc:  # pragma: no cover - protective circuit
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    df = _apply_common_filters(
+        df,
+        filter_state=filter_state,
+        min_entrants=min_entrants,
+        max_entrants=max_entrants,
+        min_max_event_entrants=min_max_event_entrants,
+        min_large_event_share=min_large_event_share,
+        start_after_ts=start_after_ts,
+    )
+
+    limited_df = df if limit == 0 else df.head(limit)
+    records: List[Dict[str, Any]] = limited_df.to_dict(orient="records")
+    return {
+        "slugs": slugs,
+        "character": character,
+        "count": len(records),
+        "results": records,
         "invalid": invalid_inputs,
     }
 
