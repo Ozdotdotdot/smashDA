@@ -759,9 +759,6 @@ def list_tournaments_by_slug(
             missing.append(slug)
             continue
 
-        if tourney.get("addrCountry") is None:
-            tourney["addrCountry"] = tourney.get("countryCode")
-
         records.append(
             {
                 "id": tourney.get("id"),
@@ -769,7 +766,7 @@ def list_tournaments_by_slug(
                 "name": tourney.get("name"),
                 "city": tourney.get("city"),
                 "state": tourney.get("addrState") or tourney.get("state"),
-                "country": tourney.get("addrCountry"),
+                "country": tourney.get("countryCode"),
                 "start_at": tourney.get("startAt"),
                 "end_at": tourney.get("endAt"),
                 "num_attendees": tourney.get("numAttendees"),

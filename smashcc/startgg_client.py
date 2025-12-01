@@ -280,7 +280,7 @@ class StartGGClient:
             name
             city
             addrState
-            addrCountry
+            countryCode
             startAt
             endAt
             numAttendees
