@@ -288,7 +288,10 @@ class StartGGClient:
         }
         """
         data = self.execute(query, variables={"slug": slug})
-        return data.get("tournament")
+        tourney = data.get("tournament")
+        if tourney and tourney.get("addrCountry") is None:
+            tourney["addrCountry"] = tourney.get("countryCode")
+        return tourney
 
     def _cache_is_stale(self, cache_path: Path) -> bool:
         """Check whether a cached payload should be refreshed."""

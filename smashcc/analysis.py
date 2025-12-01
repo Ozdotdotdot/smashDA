@@ -45,6 +45,10 @@ def generate_player_metrics_for_tournaments(
         if not tournaments:
             return pd.DataFrame()
 
+        if store is not None:
+            # Ensure tournaments exist in SQLite before saving events (FK constraint).
+            store.upsert_tournaments(tournaments, videogame_id)
+
         player_results = collect_player_results_for_tournaments(
             client,
             tournaments,
