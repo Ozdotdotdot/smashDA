@@ -16,6 +16,7 @@ from fastapi.responses import JSONResponse
 
 from smashcc.analysis import find_tournaments, generate_player_metrics
 from smashcc.datastore import SQLiteStore
+from smashcc.startgg_client import StartGGClient
 
 app = FastAPI(
     title="Smash Character Competency API",
@@ -141,6 +142,30 @@ def _parse_start_after_timestamp(start_after: Optional[str]) -> Optional[int]:
 def _normalize_terms(values: Optional[List[str]]) -> List[str]:
     """Return lowercase, trimmed substring filters."""
     return [v.strip().lower() for v in values or [] if v and v.strip()]
+
+
+def _extract_tournament_slug(value: Optional[str]) -> Optional[str]:
+    """Pull the tournament slug out of either a slug or a full start.gg URL."""
+    if not value:
+        return None
+    cleaned = value.strip()
+    if not cleaned:
+        return None
+    lower = cleaned.lower()
+    anchor = "tournament/"
+    if "start.gg" in lower:
+        start_idx = lower.find(anchor)
+        slug_part = lower[start_idx:] if start_idx != -1 else lower
+    else:
+        slug_part = lower
+    slug_part = slug_part.lstrip("/")
+    slug_part = slug_part.split("?", 1)[0].split("#", 1)[0]
+    segments = slug_part.split("/")
+    if len(segments) >= 2:
+        slug_part = "/".join(segments[:2])
+    if not slug_part.startswith(anchor):
+        return None
+    return slug_part
 
 
 def _apply_common_filters(
@@ -682,6 +707,80 @@ def list_tournaments(
         "months_back": months_back,
         "count": len(records),
         "results": records,
+    }
+
+
+@app.get("/tournaments/by-slug")
+def list_tournaments_by_slug(
+    tournament_slug: List[str] = Query(
+        ...,
+        description="Repeatable exact slug or start.gg URL (e.g., 'tournament/genesis-9').",
+    ),
+) -> Dict[str, Any]:
+    """Return one or more tournaments by slug without requiring a state window."""
+    token = os.getenv("STARTGG_API_TOKEN")
+    if not token:
+        raise HTTPException(status_code=500, detail="Missing STARTGG_API_TOKEN")
+
+    slugs = []
+    invalid_inputs = []
+    for raw in tournament_slug:
+        slug = _extract_tournament_slug(raw)
+        if slug:
+            slugs.append(slug)
+        else:
+            invalid_inputs.append(raw)
+
+    if not slugs:
+        raise HTTPException(
+            status_code=400,
+            detail="Provide at least one tournament_slug or start.gg tournament URL.",
+        )
+
+    # Preserve order while deduping to avoid redundant network calls.
+    seen = set()
+    normalized_slugs = []
+    for slug in slugs:
+        if slug in seen:
+            continue
+        seen.add(slug)
+        normalized_slugs.append(slug)
+
+    client = StartGGClient()
+    records = []
+    missing = []
+    for slug in normalized_slugs:
+        try:
+            tourney = client.fetch_tournament_by_slug(slug)
+        except Exception as exc:  # pragma: no cover - protective circuit
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+        if not tourney:
+            missing.append(slug)
+            continue
+
+        if tourney.get("addrCountry") is None:
+            tourney["addrCountry"] = tourney.get("countryCode")
+
+        records.append(
+            {
+                "id": tourney.get("id"),
+                "slug": tourney.get("slug"),
+                "name": tourney.get("name"),
+                "city": tourney.get("city"),
+                "state": tourney.get("addrState") or tourney.get("state"),
+                "country": tourney.get("addrCountry"),
+                "start_at": tourney.get("startAt"),
+                "end_at": tourney.get("endAt"),
+                "num_attendees": tourney.get("numAttendees"),
+            }
+        )
+
+    return {
+        "count": len(records),
+        "results": records,
+        "missing": missing,
+        "invalid": invalid_inputs,
     }
 
 

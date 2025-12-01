@@ -270,6 +270,26 @@ class StartGGClient:
 
             page += 1
 
+    def fetch_tournament_by_slug(self, slug: str) -> Optional[Dict]:
+        """Return a single tournament by its start.gg slug (e.g., 'tournament/genesis-9')."""
+        query = """
+        query TournamentBySlug($slug: String!) {
+          tournament(slug: $slug) {
+            id
+            slug
+            name
+            city
+            addrState
+            addrCountry
+            startAt
+            endAt
+            numAttendees
+          }
+        }
+        """
+        data = self.execute(query, variables={"slug": slug})
+        return data.get("tournament")
+
     def _cache_is_stale(self, cache_path: Path) -> bool:
         """Check whether a cached payload should be refreshed."""
         if self.stale_after is None:
