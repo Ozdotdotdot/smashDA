@@ -844,6 +844,10 @@ def search_by_slug(
         None,
         description="Only include players whose latest event started on or after this date (YYYY-MM-DD).",
     ),
+    refresh: bool = Query(
+        False,
+        description="Bypass cached SQLite data and refetch tournament/events/sets from start.gg.",
+    ),
     debug: bool = Query(
         False,
         description="When true, include diagnostic information about discovered events.",
@@ -877,7 +881,7 @@ def search_by_slug(
     debug_info: List[Dict[str, Any]] = []
     if debug:
         dbg_client = StartGGClient()
-        dbg_store = SQLiteStore(_get_store_path())
+        dbg_store = None if refresh else SQLiteStore(_get_store_path())
         try:
             for slug in slugs:
                 tourney = dbg_client.fetch_tournament_by_slug(slug)
@@ -919,7 +923,8 @@ def search_by_slug(
                     }
                 )
         finally:
-            dbg_store.close()
+            if dbg_store is not None:
+                dbg_store.close()
 
     try:
         df = generate_player_metrics_for_tournaments(
@@ -927,6 +932,7 @@ def search_by_slug(
             videogame_id=videogame_id,
             target_character=character,
             assume_target_main=assume_target_main,
+            use_store=not refresh,
             store_path=_get_store_path(),
             large_event_threshold=large_event_threshold,
         )
