@@ -20,6 +20,7 @@ from smashcc.analysis import (
     generate_player_metrics_for_tournaments,
 )
 from smashcc.datastore import SQLiteStore
+from smashcc.smash_data import fetch_tournament_events, is_singles_event
 from smashcc.startgg_client import StartGGClient
 
 app = FastAPI(
@@ -843,6 +844,10 @@ def search_by_slug(
         None,
         description="Only include players whose latest event started on or after this date (YYYY-MM-DD).",
     ),
+    debug: bool = Query(
+        False,
+        description="When true, include diagnostic information about discovered events.",
+    ),
 ) -> Dict[str, Any]:
     """
     Compute player metrics for one or more tournaments addressed by slug only.
@@ -869,6 +874,53 @@ def search_by_slug(
 
     start_after_ts = _parse_start_after_timestamp(start_after)
 
+    debug_info: List[Dict[str, Any]] = []
+    if debug:
+        dbg_client = StartGGClient()
+        dbg_store = SQLiteStore(_get_store_path())
+        try:
+            for slug in slugs:
+                tourney = dbg_client.fetch_tournament_by_slug(slug)
+                if not tourney:
+                    debug_info.append(
+                        {"slug": slug, "error": "tournament not found from start.gg"}
+                    )
+                    continue
+                tournament_id = tourney.get("id")
+                if tournament_id is None:
+                    debug_info.append(
+                        {"slug": slug, "error": "tournament missing id from start.gg payload"}
+                    )
+                    continue
+                events = fetch_tournament_events(
+                    dbg_client,
+                    tournament_id=int(tournament_id),
+                    store=dbg_store,
+                )
+                event_summaries = []
+                for ev in events:
+                    vg = (ev.get("videogame") or {}).get("id")
+                    event_summaries.append(
+                        {
+                            "id": ev.get("id"),
+                            "name": ev.get("name"),
+                            "slug": ev.get("slug"),
+                            "videogame_id": vg,
+                            "is_singles": is_singles_event(ev),
+                            "num_entrants": ev.get("numEntrants"),
+                        }
+                    )
+                debug_info.append(
+                    {
+                        "slug": slug,
+                        "tournament_id": tournament_id,
+                        "event_count": len(events),
+                        "events": event_summaries,
+                    }
+                )
+        finally:
+            dbg_store.close()
+
     try:
         df = generate_player_metrics_for_tournaments(
             tournament_slugs=slugs,
@@ -893,13 +945,16 @@ def search_by_slug(
 
     limited_df = df if limit == 0 else df.head(limit)
     records: List[Dict[str, Any]] = limited_df.to_dict(orient="records")
-    return {
+    response: Dict[str, Any] = {
         "slugs": slugs,
         "character": character,
         "count": len(records),
         "results": records,
         "invalid": invalid_inputs,
     }
+    if debug:
+        response["debug"] = debug_info
+    return response
 
 
 @app.get("/precomputed_series")
