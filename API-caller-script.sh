@@ -13,6 +13,10 @@ Options:
 EOF
 }
 
+ts() {
+  date --iso-8601=seconds
+}
+
 while [[ $# -gt 0 ]]; do
   case "$1" in
     -q|--quiet)
@@ -38,42 +42,50 @@ states=(
 
 declare -i success_count=0
 declare -a failed_states=()
+SCRIPT_START=$(date +%s)
 
-print_summary() {
-  if [[ "$QUIET" -eq 1 ]]; then
-    echo "States processed: ${#states[@]}"
-    echo "Succeeded: $success_count"
-    echo "Failed: ${#failed_states[@]}"
-    if ((${#failed_states[@]} > 0)); then
-      echo "Failed states: ${failed_states[*]}"
-    fi
+log() {
+  if [[ "$QUIET" -eq 0 ]]; then
+    printf '[%s] %s\n' "$(ts)" "$1"
   fi
 }
 
-trap 'print_summary' EXIT
+print_summary() {
+  local exit_code=$1
+  local end_time
+  end_time=$(date +%s)
+  local duration=$((end_time - SCRIPT_START))
+  local status="SUCCESS"
+  if [[ $exit_code -ne 0 || ${#failed_states[@]} -gt 0 ]]; then
+    status="FAILURE"
+  fi
+
+  printf '[%s] API-caller summary: status=%s duration=%ss states=%d succeeded=%d failed=%d\n' \
+    "$(ts)" "$status" "$duration" "${#states[@]}" "$success_count" "${#failed_states[@]}"
+
+  if ((${#failed_states[@]} > 0)); then
+    printf 'Failed states: %s\n' "${failed_states[*]}"
+  fi
+}
+
+trap 'print_summary $?' EXIT
+
+printf '[%s] API-caller: starting run for %d states\n' "$(ts)" "${#states[@]}"
 
 for state in "${states[@]}"; do
-  if [[ "$QUIET" -eq 1 ]]; then
-    if python run_report.py "${state}" \
-      --months-back 1 \
-      --min-entrants 32 \
-      --filter-state "${state}" \
-      --output "cheerio_${state}.csv" > /dev/null; then
-      ((success_count++))
-    else
-      failed_states+=("$state")
-      exit 1
-    fi
+  log "Starting report for ${state}"
+  if python run_report.py "${state}" \
+    --months-back 1 \
+    --min-entrants 32 \
+    --filter-state "${state}" \
+    --output "cheerio_${state}.csv" >"$([[ "$QUIET" -eq 1 ]] && echo /dev/null || echo /dev/stdout)"; then
+    ((success_count++))
+    log "Finished ${state}"
   else
-    echo "Starting report for ${state} at $(date)"
-    python run_report.py "${state}" \
-      --months-back 1 \
-      --min-entrants 32 \
-      --filter-state "${state}" \
-      --output "cheerio_${state}.csv"
-    echo "Finished ${state} at $(date)"
-    echo
+    failed_states+=("$state")
   fi
 done
 
-exit 0
+if ((${#failed_states[@]} > 0)); then
+  exit 1
+fi

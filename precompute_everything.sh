@@ -13,6 +13,10 @@ Options:
 EOF
 }
 
+ts() {
+  date --iso-8601=seconds
+}
+
 while [[ $# -gt 0 ]]; do
   case "$1" in
     -q|--quiet)
@@ -40,22 +44,32 @@ VENV_PYTHON="$BASE_DIR/.venv/bin/python"
 
 log() {
   if [[ "$QUIET" -eq 0 ]]; then
-    echo "$*"
+    printf '[%s] %s\n' "$(ts)" "$1"
   fi
 }
 
 declare -a TASK_SUMMARY=()
+SCRIPT_START=$(date +%s)
 
 print_summary() {
-  if [[ "$QUIET" -eq 1 && ${#TASK_SUMMARY[@]} -gt 0 ]]; then
-    echo "Precompute summary:"
+  local exit_code=$1
+  local end_time
+  end_time=$(date +%s)
+  local duration=$((end_time - SCRIPT_START))
+  local status="SUCCESS"
+  if [[ $exit_code -ne 0 ]]; then
+    status="FAILURE"
+  fi
+
+  printf '[%s] precompute_everything summary: status=%s duration=%ss\n' "$(ts)" "$status" "$duration"
+  if ((${#TASK_SUMMARY[@]} > 0)); then
     for line in "${TASK_SUMMARY[@]}"; do
-      echo " - $line"
+      printf ' - %s\n' "$line"
     done
   fi
 }
 
-trap 'print_summary' EXIT
+trap 'print_summary $?' EXIT
 
 if [[ "$QUIET" -eq 0 ]]; then
   log "Using Python: $VENV_PYTHON"
@@ -67,11 +81,17 @@ fi
 run_task() {
   local desc=$1
   shift
+  local summary_line=""
+
   if [[ "$QUIET" -eq 1 ]]; then
-    if "$VENV_PYTHON" "$@" > /dev/null; then
-      TASK_SUMMARY+=("$desc: OK")
+    printf '[%s] %s\n' "$(ts)" "$desc"
+    if summary_line=$("$VENV_PYTHON" "$@" | awk '/Finished processing/{line=$0} END{print line}'); then
+      summary_line=${summary_line:-"Finished without summary output."}
+      TASK_SUMMARY+=("$desc -> $summary_line")
+      printf '[%s] %s\n' "$(ts)" "$summary_line"
     else
-      TASK_SUMMARY+=("$desc: FAILED")
+      TASK_SUMMARY+=("$desc -> FAILED (see log)")
+      printf '[%s] %s\n' "$(ts)" "Task failed: $desc"
       exit 1
     fi
   else
@@ -79,6 +99,8 @@ run_task() {
     "$VENV_PYTHON" "$@"
   fi
 }
+
+printf '[%s] precompute_everything: starting tasks\n' "$(ts)"
 
 run_task "Running precompute_metrics.py for all states (1 months back)..." \
   precompute_metrics.py --all-states --months-back 1 --offline-only
