@@ -9,7 +9,7 @@
   for state in "${states[@]}"; do
     echo "Starting report for ${state} at $(date)"
     python run_report.py "${state}" \
-      --months-back 1 \
+      --months-back 3 \
       --min-entrants 32 \
       --filter-state "${state}" \
       --output "cheerio_${state}.csv"
