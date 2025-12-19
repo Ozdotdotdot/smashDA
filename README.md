@@ -13,7 +13,6 @@ Python · SQLite · GraphQL · REST APIs · Data Processing · Linux · Next.js 
 ---
 
 ## TL;DR
-
 I built a full analytics pipeline to answer a simple question:
 
 > _How do players actually compare within a local competitive Smash scene?_
@@ -23,7 +22,6 @@ What started as a local Georgia dataset evolved into a scalable system that hand
 ---
 
 ## The Problem
-
 Competitive Smash scenes lack objective, data-driven ways to evaluate player performance within a region. Existing stats often rely on raw win/loss counts, incomplete player profiles, or manually maintained rankings that don’t account for:
 
 - Opponent strength
@@ -37,7 +35,6 @@ I wanted a system that could answer **“How do I stack up locally?”** using a
 ---
 
 ## Constraints & Challenges
-
 This project dealt with real-world limitations rather than clean, curated datasets:
 
 - start.gg data is **incomplete and inconsistent**
@@ -51,7 +48,6 @@ Design decisions were made to prioritize correctness, scalability, and cost effi
 ---
 
 ## Technical Approach
-
 ### 1. Data Ingestion
 
 - Tournament data is pulled from **start.gg’s GraphQL API**
@@ -141,7 +137,6 @@ Frontend repository:
 ---
 
 ## Results & Impact
-
 - Enabled objective, data-driven player comparisons at the state level
 - Scaled from a local (Georgia) dataset to national tournament data
 - Reduced query latency via precomputation and API design
@@ -150,7 +145,6 @@ Frontend repository:
 ---
 
 ## What I Learned
-
 This project reinforced several core engineering lessons:
 
 - Real-world data is messy and requires defensive design
@@ -162,7 +156,6 @@ This project reinforced several core engineering lessons:
 ---
 
 ## Related Links
-
 - 🌐 Live Site: [https://smash.watch](https://smash.watch)
 - 🎨 Frontend Repo: https://github.com/ozdotdotdot/smash-frontend
 - 📄 Technical Deep Dive & Getting Started: `docs/README.md`
