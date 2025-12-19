@@ -5,7 +5,7 @@
 🔗 **Live site:** [https://smash.watch](https://smash.watch)  
 🎨 **Frontend:** https://github.com/ozdotdotdot/smash-frontend  
 📊 **Example API endpoint:**  
-`/precomputed?state=GA&months_back=3`
+`https://server.cetacean-tuna.ts.net/precomputed?state=GA&months_back=3&limit=0`
 
 **Tech Stack:**  
 Python · SQLite · GraphQL · REST APIs · Data Processing · Linux · Next.js (frontend)
