@@ -1,4 +1,4 @@
-# smash-character-competency
+# Smash Data Analytics (smashDA)
 
 Toolkit for exploring Super Smash Bros. player competency through the start.gg GraphQL API. The codebase pulls regional tournament data, stitches together seeds/standings/sets, and surfaces player-level metrics that feed notebooks and visualizations.
 
