@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any, Deque, Dict, List, Optional
 
 import pandas as pd
-from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi import FastAPI, HTTPException, Query, Request, Response
 from fastapi.responses import JSONResponse
 
 from smashcc.analysis import (
@@ -316,6 +316,12 @@ async def enforce_rate_limit(request: Request, call_next):
 def health() -> Dict[str, bool]:
     """Simple liveness endpoint."""
     return {"ok": True}
+
+
+@app.head("/health")
+def health_head() -> Response:
+    """Allow HEAD liveness checks."""
+    return Response(status_code=200)
 
 
 @app.get("/precomputed")
