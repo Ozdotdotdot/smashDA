@@ -1,5 +1,6 @@
 """High-level analytics entry points built on top of the start.gg helpers."""
 
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -219,6 +220,7 @@ def precompute_state_metrics(
     large_event_threshold: int = 32,
     window_offset_months: int = 0,
     window_size_months: Optional[int] = None,
+    all_time: bool = False,
     offline_only: bool = False,
 ) -> int:
     """
@@ -226,9 +228,12 @@ def precompute_state_metrics(
 
     Returns the number of player rows written to the store.
     """
+    start_override = 0 if all_time else None
+    end_override = int(datetime.now(timezone.utc).timestamp()) if all_time else None
+    effective_months_back = 0 if all_time else months_back
     df = generate_player_metrics(
         state=state,
-        months_back=months_back,
+        months_back=effective_months_back,
         videogame_id=videogame_id,
         target_character=target_character,
         assume_target_main=assume_target_main,
@@ -236,6 +241,8 @@ def precompute_state_metrics(
         large_event_threshold=large_event_threshold,
         window_offset_months=window_offset_months,
         window_size_months=window_size_months,
+        start_date_override=start_override,
+        end_date_override=end_override,
         offline_only=offline_only,
     )
     if df.empty:
@@ -262,8 +269,9 @@ def precompute_state_metrics(
         store.replace_player_metrics(
             state=state,
             videogame_id=videogame_id,
-            months_back=months_back,
+            months_back=effective_months_back,
             target_character=target_character,
+            all_time=all_time,
             rows=records,
         )
     finally:
@@ -287,6 +295,7 @@ def precompute_series_metrics(
     large_event_threshold: int = 32,
     window_offset_months: int = 0,
     window_size_months: Optional[int] = None,
+    all_time: bool = False,
     offline_only: bool = False,
 ) -> int:
     """Compute metrics for a specific series and persist them."""
@@ -296,9 +305,12 @@ def precompute_series_metrics(
     slug_terms = tournament_slug_contains or ([series_slug_term] if series_slug_term else None)
     series_name_term = series_name_term or (name_terms[0] if name_terms else None)
     series_slug_term = series_slug_term or (slug_terms[0] if slug_terms else None)
+    start_override = 0 if all_time else None
+    end_override = int(datetime.now(timezone.utc).timestamp()) if all_time else None
+    effective_months_back = 0 if all_time else months_back
     df = generate_player_metrics(
         state=state,
-        months_back=months_back,
+        months_back=effective_months_back,
         videogame_id=videogame_id,
         target_character=target_character,
         assume_target_main=assume_target_main,
@@ -308,6 +320,8 @@ def precompute_series_metrics(
         window_size_months=window_size_months,
         tournament_name_contains=name_terms,
         tournament_slug_contains=slug_terms,
+        start_date_override=start_override,
+        end_date_override=end_override,
         suppress_logs=True,
         offline_only=offline_only,
     )
@@ -335,12 +349,13 @@ def precompute_series_metrics(
         store.replace_series_metrics(
             state=state,
             videogame_id=videogame_id,
-            months_back=months_back,
+            months_back=effective_months_back,
             window_offset=window_offset_months,
             window_size=window_size_months,
             series_key=series_key,
             series_name_term=series_name_term,
             series_slug_term=series_slug_term,
+            all_time=all_time,
             rows=records,
         )
     finally:
@@ -359,6 +374,7 @@ def auto_select_series(
     top_n: int = 25,
     min_max_attendees: int = 0,
     min_event_count: int = 0,
+    all_time: bool = False,
     offline_only: bool = False,
 ) -> list[SeriesCandidate]:
     """Return ranked series candidates for a state using cached tournaments."""
@@ -372,6 +388,7 @@ def auto_select_series(
         top_n=top_n,
         min_max_attendees=min_max_attendees,
         min_event_count=min_event_count,
+        all_time=all_time,
         offline_only=offline_only,
     )
 

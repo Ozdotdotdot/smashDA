@@ -88,6 +88,7 @@ def _load_precomputed_metrics(
     months_back: int,
     videogame_id: int,
     target_character: str,
+    all_time: bool = False,
     limit: Optional[int] = None,
 ) -> List[Dict[str, Any]]:
     """Fetch persisted metric rows for the requested parameters."""
@@ -98,6 +99,7 @@ def _load_precomputed_metrics(
             videogame_id=videogame_id,
             months_back=months_back,
             target_character=target_character,
+            all_time=all_time,
             limit=limit,
         )
     finally:
@@ -112,6 +114,7 @@ def _load_series_metrics(
     window_offset: int,
     window_size: Optional[int],
     series_key: str,
+    all_time: bool = False,
     limit: Optional[int] = None,
 ) -> List[Dict[str, Any]]:
     """Fetch persisted series metric rows for the requested parameters."""
@@ -124,6 +127,7 @@ def _load_series_metrics(
             window_offset=window_offset,
             window_size=window_size,
             series_key=series_key,
+            all_time=all_time,
             limit=limit,
         )
     finally:
@@ -229,6 +233,7 @@ def _find_series(
     series_key: Optional[str],
     tournament_contains: Optional[List[str]],
     tournament_slug_contains: Optional[List[str]],
+    all_time: bool = False,
     allow_multi: bool = False,
 ) -> List[Dict[str, Any]]:
     """Resolve one or more series keys using provided hints."""
@@ -255,6 +260,7 @@ def _find_series(
             months_back=months_back,
             window_offset=window_offset,
             window_size=window_size,
+            all_time=all_time,
             name_contains=name_term,
             slug_contains=slug_term,
             limit=20,
@@ -333,6 +339,14 @@ def precomputed_metrics(
         le=24,
         description="Rolling window the metrics were generated with.",
     ),
+    all_time: bool = Query(
+        False,
+        description="When true, return the all-time precompute slice.",
+    ),
+    all_time: bool = Query(
+        False,
+        description="When true, return the all-time precompute slice.",
+    ),
     videogame_id: int = Query(
         1386,
         description="start.gg videogame identifier (Ultimate = 1386, Melee = 1).",
@@ -378,6 +392,7 @@ def precomputed_metrics(
     ),
 ) -> Dict[str, Any]:
     """Serve precomputed weighted win rate/opponent strength rows from SQLite."""
+    effective_months_back = 0 if all_time else months_back
     filters_requested = any(
         [
             bool(filter_state),
@@ -391,9 +406,10 @@ def precomputed_metrics(
     store_limit = None if (limit == 0 or filters_requested) else limit
     rows = _load_precomputed_metrics(
         state=state,
-        months_back=months_back,
+        months_back=effective_months_back,
         videogame_id=videogame_id,
         target_character=character,
+        all_time=all_time,
         limit=store_limit,
     )
     if not rows:
@@ -431,7 +447,8 @@ def precomputed_metrics(
     return {
         "state": state,
         "character": character,
-        "months_back": months_back,
+        "months_back": effective_months_back,
+        "all_time": all_time,
         "videogame_id": videogame_id,
         "count": len(records),
         "results": records,
@@ -1046,15 +1063,17 @@ def precomputed_series(
     ),
 ) -> Dict[str, Any]:
     """Serve precomputed series-scoped metrics from SQLite."""
+    effective_months_back = 0 if all_time else months_back
     resolved_matches = _find_series(
         state=state,
         videogame_id=videogame_id,
-        months_back=months_back,
+        months_back=effective_months_back,
         window_offset=window_offset,
         window_size=window_size,
         series_key=series_key,
         tournament_contains=_normalize_terms(tournament_contains),
         tournament_slug_contains=_normalize_terms(tournament_slug_contains),
+        all_time=all_time,
         allow_multi=allow_multi,
     )
 
@@ -1074,11 +1093,12 @@ def precomputed_series(
     for resolved in resolved_matches:
         rows = _load_series_metrics(
             state=state,
-            months_back=months_back,
+            months_back=effective_months_back,
             videogame_id=videogame_id,
             window_offset=window_offset,
             window_size=window_size,
             series_key=resolved["series_key"],
+            all_time=all_time,
             limit=store_limit,
         )
         for row in rows:
@@ -1129,7 +1149,8 @@ def precomputed_series(
     records: List[Dict[str, Any]] = limited_df.to_dict(orient="records")
     response: Dict[str, Any] = {
         "state": state,
-        "months_back": months_back,
+        "months_back": effective_months_back,
+        "all_time": all_time,
         "videogame_id": videogame_id,
         "count": len(records),
         "results": records,

@@ -2,6 +2,7 @@
 """CLI helper to persist precomputed player metrics for one or more states."""
 
 import argparse
+from datetime import datetime, timezone
 import os
 from pathlib import Path
 from typing import List, Optional
@@ -60,6 +61,7 @@ def _suggest_top_n_for_state(
     window_offset_months: int,
     window_size_months: Optional[int],
     store_path: Path,
+    all_time: bool = False,
     small_default: int = 25,
     medium_default: int = 75,
     large_default: int = 125,
@@ -73,9 +75,11 @@ def _suggest_top_n_for_state(
     filt = TournamentFilter(
         state=state,
         videogame_id=videogame_id,
-        months_back=months_back,
+        months_back=0 if all_time else months_back,
         window_offset=window_offset_months,
         window_size=window_size_months,
+        start_ts_override=0 if all_time else None,
+        end_ts_override=int(datetime.now(timezone.utc).timestamp()) if all_time else None,
     )
     try:
         store = SQLiteStore(store_path)
@@ -131,6 +135,11 @@ def main() -> None:
         type=int,
         default=6,
         help="Rolling tournament window (in months) used when computing metrics.",
+    )
+    parser.add_argument(
+        "--all-time",
+        action="store_true",
+        help="Compute an all-time window (ignores --months-back/--window-offset/--window-size).",
     )
     parser.add_argument(
         "--window-offset",
@@ -213,6 +222,9 @@ def main() -> None:
     if not args.states and not args.all_states:
         parser.error("provide at least one --state or pass --all-states")
 
+    if args.all_time and (args.window_offset != 0 or args.window_size is not None):
+        parser.error("--all-time does not support --window-offset or --window-size")
+
     if not os.getenv("STARTGG_API_TOKEN") and not args.offline_only:
         parser.error("STARTGG_API_TOKEN is not set; export it before running.")
 
@@ -239,12 +251,14 @@ def main() -> None:
         print("No states found to process.")
         return
 
+    effective_months_back = 0 if args.all_time else args.months_back
+
     processed = 0
     for state in states:
         print(f"[+] Computing metrics for {state}...")
         row_count = precompute_state_metrics(
             state=state,
-            months_back=args.months_back,
+            months_back=effective_months_back,
             videogame_id=args.videogame_id,
             target_character=args.character,
             assume_target_main=args.assume_target_main,
@@ -252,6 +266,7 @@ def main() -> None:
             large_event_threshold=args.large_event_threshold,
             window_offset_months=args.window_offset,
             window_size_months=args.window_size,
+            all_time=args.all_time,
             offline_only=args.offline_only,
         )
         print(f"    Stored {row_count} players for {state}.")
@@ -260,23 +275,24 @@ def main() -> None:
             print(
                 "    Precomputing series for provided tournament filters..."
             )
-            series_rows = precompute_series_metrics(
-                state=state,
-                series_key=manual_series_key or "custom-series",
-                series_name_term=name_terms[0] if name_terms else None,
-                series_slug_term=slug_terms[0] if slug_terms else None,
-                tournament_name_contains=name_terms or None,
-                tournament_slug_contains=slug_terms or None,
-                months_back=args.months_back,
-                videogame_id=args.videogame_id,
-                target_character=args.character,
-                assume_target_main=args.assume_target_main,
-                store_path=store_path,
-                large_event_threshold=args.large_event_threshold,
-                window_offset_months=args.window_offset,
-                window_size_months=args.window_size,
-                offline_only=args.offline_only,
-            )
+                series_rows = precompute_series_metrics(
+                    state=state,
+                    series_key=manual_series_key or "custom-series",
+                    series_name_term=name_terms[0] if name_terms else None,
+                    series_slug_term=slug_terms[0] if slug_terms else None,
+                    tournament_name_contains=name_terms or None,
+                    tournament_slug_contains=slug_terms or None,
+                    months_back=effective_months_back,
+                    videogame_id=args.videogame_id,
+                    target_character=args.character,
+                    assume_target_main=args.assume_target_main,
+                    store_path=store_path,
+                    large_event_threshold=args.large_event_threshold,
+                    window_offset_months=args.window_offset,
+                    window_size_months=args.window_size,
+                    all_time=args.all_time,
+                    offline_only=args.offline_only,
+                )
             print(f"        Stored {series_rows} players for series '{manual_series_key}'.")
         if args.auto_series:
             resolved_top_n = args.top_n_per_state
@@ -284,10 +300,11 @@ def main() -> None:
                 suggested_top_n, reason = _suggest_top_n_for_state(
                     state=state,
                     videogame_id=args.videogame_id,
-                    months_back=args.months_back,
+                    months_back=effective_months_back,
                     window_offset_months=args.window_offset,
                     window_size_months=args.window_size,
                     store_path=store_path or Path(".cache") / "startgg" / "smash.db",
+                    all_time=args.all_time,
                 )
                 resolved_top_n = suggested_top_n
                 print(f"    Auto-series top N set to {resolved_top_n} ({reason}).")
@@ -296,12 +313,13 @@ def main() -> None:
             print("    Selecting series candidates...")
             candidates = auto_select_series(
                 state=state,
-                months_back=args.months_back,
+                months_back=effective_months_back,
                 videogame_id=args.videogame_id,
                 window_offset_months=args.window_offset,
                 window_size_months=args.window_size,
                 store_path=store_path,
                 top_n=resolved_top_n,
+                all_time=args.all_time,
                 offline_only=args.offline_only,
             )
             if not candidates:
@@ -316,7 +334,7 @@ def main() -> None:
                     series_key=cand.series_key,
                     series_name_term=cand.name_term,
                     series_slug_term=cand.slug_term,
-                    months_back=args.months_back,
+                    months_back=effective_months_back,
                     videogame_id=args.videogame_id,
                     target_character=args.character,
                     assume_target_main=args.assume_target_main,
@@ -324,6 +342,7 @@ def main() -> None:
                     large_event_threshold=args.large_event_threshold,
                     window_offset_months=args.window_offset,
                     window_size_months=args.window_size,
+                    all_time=args.all_time,
                     offline_only=args.offline_only,
                 )
                 print(f"        Stored {series_rows} players for series '{cand.series_key}'.")

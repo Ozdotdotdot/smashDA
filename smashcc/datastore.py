@@ -114,6 +114,7 @@ class SQLiteStore:
                 videogame_id INTEGER NOT NULL,
                 months_back INTEGER NOT NULL,
                 target_character TEXT NOT NULL,
+                all_time INTEGER NOT NULL DEFAULT 0,
                 player_id INTEGER NOT NULL,
                 gamer_tag TEXT,
                 weighted_win_rate REAL,
@@ -141,6 +142,7 @@ class SQLiteStore:
                 window_offset INTEGER NOT NULL,
                 window_size INTEGER NOT NULL,
                 series_key TEXT NOT NULL,
+                all_time INTEGER NOT NULL DEFAULT 0,
                 series_name_term TEXT,
                 series_slug_term TEXT,
                 player_id INTEGER NOT NULL,
@@ -184,6 +186,8 @@ class SQLiteStore:
         self._ensure_column("player_metrics", "avg_seed_delta", "REAL")
         self._ensure_column("player_metrics", "upset_rate", "REAL")
         self._ensure_column("player_metrics", "activity_score", "REAL")
+        self._ensure_column("player_metrics", "all_time", "INTEGER NOT NULL DEFAULT 0")
+        self._ensure_column("player_series_metrics", "all_time", "INTEGER NOT NULL DEFAULT 0")
         self._ensure_column("player_series_metrics", "avg_seed_delta", "REAL")
         self._ensure_column("player_series_metrics", "upset_rate", "REAL")
         self._ensure_column("player_series_metrics", "activity_score", "REAL")
@@ -529,12 +533,14 @@ class SQLiteStore:
         videogame_id: int,
         months_back: int,
         target_character: str,
+        all_time: bool = False,
         rows: Iterable[Dict],
     ) -> None:
         """Replace the stored player metrics for a state with the provided rows."""
         now_ts = int(datetime.now(timezone.utc).timestamp())
         normalized_state = state.upper()
         normalized_character = target_character or "Marth"
+        all_time_value = 1 if all_time else 0
         with self.conn:
             self.conn.execute(
                 """
@@ -543,12 +549,14 @@ class SQLiteStore:
                         AND videogame_id = ?
                         AND months_back = ?
                         AND target_character = ?
+                        AND all_time = ?
                 """,
                 (
                     normalized_state,
                     int(videogame_id),
                     int(months_back),
                     normalized_character,
+                    all_time_value,
                 ),
             )
             if not rows:
@@ -560,6 +568,7 @@ class SQLiteStore:
                     videogame_id,
                     months_back,
                     target_character,
+                    all_time,
                     player_id,
                     gamer_tag,
                     weighted_win_rate,
@@ -575,7 +584,7 @@ class SQLiteStore:
                     latest_event_start,
                     computed_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 [
                     (
@@ -583,6 +592,7 @@ class SQLiteStore:
                         int(videogame_id),
                         int(months_back),
                         normalized_character,
+                        all_time_value,
                         int(row.get("player_id")),
                         row.get("gamer_tag"),
                         row.get("weighted_win_rate"),
@@ -609,9 +619,11 @@ class SQLiteStore:
         videogame_id: int,
         months_back: int,
         target_character: str,
+        all_time: bool = False,
         limit: Optional[int] = None,
     ) -> List[Dict]:
         """Return persisted player metrics sorted by weighted win rate."""
+        all_time_value = 1 if all_time else 0
         query = """
             SELECT player_id,
                    gamer_tag,
@@ -632,6 +644,7 @@ class SQLiteStore:
                AND videogame_id = ?
                AND months_back = ?
                AND target_character = ?
+               AND all_time = ?
              ORDER BY (weighted_win_rate IS NULL),
                       weighted_win_rate DESC,
                       (opponent_strength IS NULL),
@@ -642,6 +655,7 @@ class SQLiteStore:
             int(videogame_id),
             int(months_back),
             target_character,
+            all_time_value,
         ]
         if limit is not None and limit > 0:
             query += " LIMIT ?"
@@ -684,6 +698,7 @@ class SQLiteStore:
         series_key: str,
         series_name_term: Optional[str],
         series_slug_term: Optional[str],
+        all_time: bool = False,
         rows: Iterable[Dict],
     ) -> None:
         """Replace persisted series-scoped metrics for a given series key."""
@@ -691,6 +706,7 @@ class SQLiteStore:
         normalized_state = state.upper()
         normalized_series_key = series_key or "unknown"
         normalized_window_size = window_size if window_size is not None else -1
+        all_time_value = 1 if all_time else 0
 
         with self.conn:
             self.conn.execute(
@@ -702,6 +718,7 @@ class SQLiteStore:
                         AND window_offset = ?
                         AND window_size = ?
                         AND series_key = ?
+                        AND all_time = ?
                 """,
                 (
                     normalized_state,
@@ -710,6 +727,7 @@ class SQLiteStore:
                     int(window_offset),
                     int(normalized_window_size),
                     normalized_series_key,
+                    all_time_value,
                 ),
             )
             if not rows:
@@ -723,6 +741,7 @@ class SQLiteStore:
                     window_offset,
                     window_size,
                     series_key,
+                    all_time,
                     series_name_term,
                     series_slug_term,
                     player_id,
@@ -740,7 +759,7 @@ class SQLiteStore:
                     latest_event_start,
                     computed_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 [
                     (
@@ -750,6 +769,7 @@ class SQLiteStore:
                         int(window_offset),
                         int(normalized_window_size),
                         normalized_series_key,
+                        all_time_value,
                         series_name_term,
                         series_slug_term,
                         int(row.get("player_id")),
@@ -780,12 +800,14 @@ class SQLiteStore:
         window_offset: int,
         window_size: Optional[int],
         series_key: str,
+        all_time: bool = False,
         limit: Optional[int] = None,
     ) -> List[Dict]:
         """Return persisted metrics for a specific series key."""
         normalized_state = state.upper()
         normalized_series_key = series_key or "unknown"
         normalized_window_size = window_size if window_size is not None else -1
+        all_time_value = 1 if all_time else 0
         query = """
             SELECT player_id,
                    gamer_tag,
@@ -808,6 +830,7 @@ class SQLiteStore:
                AND window_offset = ?
                AND window_size = ?
                AND series_key = ?
+               AND all_time = ?
              ORDER BY (weighted_win_rate IS NULL),
                       weighted_win_rate DESC,
                       (opponent_strength IS NULL),
@@ -820,6 +843,7 @@ class SQLiteStore:
             int(window_offset),
             int(normalized_window_size),
             normalized_series_key,
+            all_time_value,
         ]
         if limit is not None and limit > 0:
             query += " LIMIT ?"
@@ -855,6 +879,7 @@ class SQLiteStore:
         months_back: int,
         window_offset: int,
         window_size: Optional[int],
+        all_time: bool = False,
         name_contains: Optional[str] = None,
         slug_contains: Optional[str] = None,
         limit: Optional[int] = None,
@@ -862,12 +887,14 @@ class SQLiteStore:
         """Return series keys matching optional name/slug substrings."""
         normalized_state = state.upper()
         normalized_window_size = window_size if window_size is not None else -1
+        all_time_value = 1 if all_time else 0
         clauses = [
             "state = ?",
             "videogame_id = ?",
             "months_back = ?",
             "window_offset = ?",
             "window_size = ?",
+            "all_time = ?",
         ]
         params: List[Any] = [
             normalized_state,
@@ -875,6 +902,7 @@ class SQLiteStore:
             int(months_back),
             int(window_offset),
             int(normalized_window_size),
+            all_time_value,
         ]
 
         if name_contains:

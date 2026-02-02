@@ -66,6 +66,12 @@ run_command "$VENV_PYTHON" precompute_metrics.py --all-states --months-back 3 --
 log "Running precompute_metrics.py for all states (3 months back, auto-series)..."
 run_command "$VENV_PYTHON" precompute_metrics.py --all-states --months-back 3 --auto-series --offline-only
 
+log "Running precompute_metrics.py for all states (all-time)..."
+run_command "$VENV_PYTHON" precompute_metrics.py --all-states --all-time --offline-only
+
+log "Running precompute_metrics.py for all states (all-time, auto-series)..."
+run_command "$VENV_PYTHON" precompute_metrics.py --all-states --all-time --auto-series --offline-only
+
 end_epoch=$(date +%s)
 duration=$((end_epoch - start_epoch))
 echo "Summary: completed precompute_everything in ${duration}s using ${VENV_PYTHON}."

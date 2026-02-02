@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from datetime import datetime, timezone
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Optional
@@ -61,6 +62,7 @@ def rank_series_for_state(
     min_event_count: int = 0,
     use_cache: bool = True,
     offline_only: bool = False,
+    all_time: bool = False,
 ) -> List[SeriesCandidate]:
     """
     Analyze tournaments in the cached window and return ranked series candidates,
@@ -68,12 +70,17 @@ def rank_series_for_state(
     """
     client = StartGGClient(use_cache=use_cache, offline_only=offline_only)
     store: Optional[SQLiteStore] = SQLiteStore(store_path)
+    start_override = 0 if all_time else None
+    end_override = int(datetime.now(timezone.utc).timestamp()) if all_time else None
+    effective_months_back = 0 if all_time else months_back
     filt = TournamentFilter(
         state=state,
         videogame_id=videogame_id,
-        months_back=months_back,
+        months_back=effective_months_back,
         window_offset=window_offset,
         window_size=window_size,
+        start_ts_override=start_override,
+        end_ts_override=end_override,
     )
     tournaments = fetch_recent_tournaments(
         client,
