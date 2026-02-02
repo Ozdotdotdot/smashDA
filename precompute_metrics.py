@@ -7,6 +7,8 @@ import os
 from pathlib import Path
 from typing import List, Optional
 
+import pandas as pd
+
 from smashcc.analysis import (
     auto_select_series,
     precompute_series_metrics,
@@ -193,6 +195,13 @@ def main() -> None:
         help="Use cached tournaments/events only; fail if data is missing or stale and never hit start.gg.",
     )
     parser.add_argument(
+        "--output",
+        help=(
+            "Optional CSV path to write the stored precomputed state metrics. "
+            "If multiple states are processed, the state code is appended to the filename."
+        ),
+    )
+    parser.add_argument(
         "--tournament-contains",
         dest="tournament_contains",
         action="append",
@@ -270,6 +279,27 @@ def main() -> None:
             offline_only=args.offline_only,
         )
         print(f"    Stored {row_count} players for {state}.")
+        if args.output:
+            output_path = Path(args.output)
+            if len(states) > 1:
+                suffix = output_path.suffix or ".csv"
+                stem = output_path.stem if output_path.suffix else output_path.name
+                output_path = output_path.with_name(f"{stem}_{state}{suffix}")
+            store = SQLiteStore(store_path)
+            try:
+                rows = store.load_player_metrics(
+                    state=state,
+                    videogame_id=args.videogame_id,
+                    months_back=effective_months_back,
+                    target_character=args.character,
+                    all_time=args.all_time,
+                    limit=None,
+                )
+            finally:
+                store.close()
+            df = pd.DataFrame(rows)
+            df.to_csv(output_path, index=False)
+            print(f"    Wrote {len(df)} rows to {output_path}")
         processed += 1
         if manual_series:
             print(
