@@ -118,6 +118,9 @@ class SQLiteStore:
                 gamer_tag TEXT,
                 weighted_win_rate REAL,
                 opponent_strength REAL,
+                avg_seed_delta REAL,
+                upset_rate REAL,
+                activity_score REAL,
                 home_state TEXT,
                 home_state_inferred INTEGER,
                 avg_event_entrants REAL,
@@ -144,6 +147,9 @@ class SQLiteStore:
                 gamer_tag TEXT,
                 weighted_win_rate REAL,
                 opponent_strength REAL,
+                avg_seed_delta REAL,
+                upset_rate REAL,
+                activity_score REAL,
                 home_state TEXT,
                 home_state_inferred INTEGER,
                 avg_event_entrants REAL,
@@ -175,6 +181,12 @@ class SQLiteStore:
         self._ensure_column("player_metrics", "max_event_entrants", "REAL")
         self._ensure_column("player_metrics", "large_event_share", "REAL")
         self._ensure_column("player_metrics", "latest_event_start", "INTEGER")
+        self._ensure_column("player_metrics", "avg_seed_delta", "REAL")
+        self._ensure_column("player_metrics", "upset_rate", "REAL")
+        self._ensure_column("player_metrics", "activity_score", "REAL")
+        self._ensure_column("player_series_metrics", "avg_seed_delta", "REAL")
+        self._ensure_column("player_series_metrics", "upset_rate", "REAL")
+        self._ensure_column("player_series_metrics", "activity_score", "REAL")
         self._ensure_column("tournaments", "events_checked", "INTEGER")
 
     def _ensure_column(self, table: str, column: str, definition: str) -> None:
@@ -552,6 +564,9 @@ class SQLiteStore:
                     gamer_tag,
                     weighted_win_rate,
                     opponent_strength,
+                    avg_seed_delta,
+                    upset_rate,
+                    activity_score,
                     home_state,
                     home_state_inferred,
                     avg_event_entrants,
@@ -560,7 +575,7 @@ class SQLiteStore:
                     latest_event_start,
                     computed_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 [
                     (
@@ -572,6 +587,9 @@ class SQLiteStore:
                         row.get("gamer_tag"),
                         row.get("weighted_win_rate"),
                         row.get("opponent_strength"),
+                        row.get("avg_seed_delta"),
+                        row.get("upset_rate"),
+                        row.get("activity_score"),
                         row.get("home_state"),
                         _bool_to_int(row.get("home_state_inferred")),
                         row.get("avg_event_entrants"),
@@ -599,6 +617,9 @@ class SQLiteStore:
                    gamer_tag,
                    weighted_win_rate,
                    opponent_strength,
+                   avg_seed_delta,
+                   upset_rate,
+                   activity_score,
                    home_state,
                    home_state_inferred,
                    avg_event_entrants,
@@ -632,6 +653,9 @@ class SQLiteStore:
                 "gamer_tag": row["gamer_tag"],
                 "weighted_win_rate": row["weighted_win_rate"],
                 "opponent_strength": row["opponent_strength"],
+                "avg_seed_delta": row["avg_seed_delta"],
+                "upset_rate": row["upset_rate"],
+                "activity_score": row["activity_score"],
                 "home_state": row["home_state"],
                 "home_state_inferred": bool(row["home_state_inferred"])
                 if row["home_state_inferred"] is not None
@@ -705,6 +729,9 @@ class SQLiteStore:
                     gamer_tag,
                     weighted_win_rate,
                     opponent_strength,
+                    avg_seed_delta,
+                    upset_rate,
+                    activity_score,
                     home_state,
                     home_state_inferred,
                     avg_event_entrants,
@@ -713,7 +740,7 @@ class SQLiteStore:
                     latest_event_start,
                     computed_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 [
                     (
@@ -729,6 +756,9 @@ class SQLiteStore:
                         row.get("gamer_tag"),
                         row.get("weighted_win_rate"),
                         row.get("opponent_strength"),
+                        row.get("avg_seed_delta"),
+                        row.get("upset_rate"),
+                        row.get("activity_score"),
                         row.get("home_state"),
                         _bool_to_int(row.get("home_state_inferred")),
                         row.get("avg_event_entrants"),
@@ -761,6 +791,9 @@ class SQLiteStore:
                    gamer_tag,
                    weighted_win_rate,
                    opponent_strength,
+                   avg_seed_delta,
+                   upset_rate,
+                   activity_score,
                    home_state,
                    home_state_inferred,
                    avg_event_entrants,
@@ -798,6 +831,9 @@ class SQLiteStore:
                 "gamer_tag": row["gamer_tag"],
                 "weighted_win_rate": row["weighted_win_rate"],
                 "opponent_strength": row["opponent_strength"],
+                "avg_seed_delta": row["avg_seed_delta"],
+                "upset_rate": row["upset_rate"],
+                "activity_score": row["activity_score"],
                 "home_state": row["home_state"],
                 "home_state_inferred": bool(row["home_state_inferred"])
                 if row["home_state_inferred"] is not None
