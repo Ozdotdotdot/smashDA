@@ -275,24 +275,24 @@ def main() -> None:
             print(
                 "    Precomputing series for provided tournament filters..."
             )
-                series_rows = precompute_series_metrics(
-                    state=state,
-                    series_key=manual_series_key or "custom-series",
-                    series_name_term=name_terms[0] if name_terms else None,
-                    series_slug_term=slug_terms[0] if slug_terms else None,
-                    tournament_name_contains=name_terms or None,
-                    tournament_slug_contains=slug_terms or None,
-                    months_back=effective_months_back,
-                    videogame_id=args.videogame_id,
-                    target_character=args.character,
-                    assume_target_main=args.assume_target_main,
-                    store_path=store_path,
-                    large_event_threshold=args.large_event_threshold,
-                    window_offset_months=args.window_offset,
-                    window_size_months=args.window_size,
-                    all_time=args.all_time,
-                    offline_only=args.offline_only,
-                )
+            series_rows = precompute_series_metrics(
+                state=state,
+                series_key=manual_series_key or "custom-series",
+                series_name_term=name_terms[0] if name_terms else None,
+                series_slug_term=slug_terms[0] if slug_terms else None,
+                tournament_name_contains=name_terms or None,
+                tournament_slug_contains=slug_terms or None,
+                months_back=effective_months_back,
+                videogame_id=args.videogame_id,
+                target_character=args.character,
+                assume_target_main=args.assume_target_main,
+                store_path=store_path,
+                large_event_threshold=args.large_event_threshold,
+                window_offset_months=args.window_offset,
+                window_size_months=args.window_size,
+                all_time=args.all_time,
+                offline_only=args.offline_only,
+            )
             print(f"        Stored {series_rows} players for series '{manual_series_key}'.")
         if args.auto_series:
             resolved_top_n = args.top_n_per_state
