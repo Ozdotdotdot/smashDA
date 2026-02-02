@@ -991,6 +991,10 @@ def precomputed_series(
         le=24,
         description="Rolling window the metrics were generated with.",
     ),
+    all_time: bool = Query(
+        False,
+        description="When true, return the all-time precompute slice.",
+    ),
     videogame_id: int = Query(
         1386,
         description="start.gg videogame identifier (Ultimate = 1386, Melee = 1).",
