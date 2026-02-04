@@ -146,7 +146,6 @@ uvicorn api:app --host 0.0.0.0 --port 8000
 - `GET /search` – runs the analytics pipeline and returns the top N player rows.
 - `GET /precomputed_series` – serves cached series-scoped metrics; accepts `state`, `months_back`, `videogame_id`, `window_offset`, `window_size`, and either `series_key` or term selectors (`tournament_contains`/`tournament_slug_contains`). Supports the same filters as `/precomputed` (`filter_state`, entrant bounds, `start_after`). Response includes `resolved_label` to show which series matched your terms.
 - `GET /tournaments` – returns tournaments in a window, optionally filtered by name/slug substrings (series search).
-- `GET /tournaments` – returns tournaments in a window, optionally filtered by name/slug substrings (series search).
 
 ### Rate limiting
 
@@ -158,6 +157,7 @@ All HTTP endpoints share a lightweight per-IP rate limiter (default: 60 requests
 | ----- | -------- | ----------- |
 | `state` | yes | Two-letter state/region used when metrics were precomputed. |
 | `months_back` | optional, default `6` | Rolling window the persisted metrics cover. |
+| `all_time` | optional, default `false` | When `true`, ignores `months_back` and returns the all-time precompute slice. |
 | `videogame_id` | optional, default `1386` | start.gg game ID the metrics were generated with. |
 | `character` | optional, default `"Marth"` | Character emphasis used during the precompute step. |
 | `limit` | optional, default `50` | Maximum rows to include (`0` streams everything). |
@@ -168,6 +168,28 @@ All HTTP endpoints share a lightweight per-IP rate limiter (default: 60 requests
 | `start_after` | optional | ISO date (`YYYY-MM-DD`) that the player’s latest event must be on/after. |
 
 Filtering happens after the rows are pulled from SQLite, so you can request generous limits (even `0`) once per UI load and cache the JSON client-side for quicker visual tweaks.
+
+#### Query parameters for `/precomputed_series`
+
+| Param | Required | Description |
+| ----- | -------- | ----------- |
+| `state` | yes | Two-letter state/region used when series metrics were precomputed. |
+| `months_back` | optional, default `6` | Rolling window the persisted metrics cover. |
+| `all_time` | optional, default `false` | When `true`, ignores `months_back` and returns the all-time precompute slice. |
+| `videogame_id` | optional, default `1386` | start.gg game ID the metrics were generated with. |
+| `window_offset` | optional, default `0` | Shift the window this many months into the past (0 = newest window). |
+| `window_size` | optional | Override window length in months (defaults to `months_back`). |
+| `series_key` | optional | Exact persisted series key to query. |
+| `tournament_contains` / `tournament_slug_contains` | optional, repeatable | Term-based series selectors used to resolve one or more matching `series_key` values. |
+| `allow_multi` | optional, default `false` | When `true`, return rows across all matching series instead of requiring one match. |
+| `limit` | optional, default `50` | Maximum rows to include (`0` streams everything). |
+| `filter_state` | optional, repeatable | Keep players whose `home_state` matches any provided code. |
+| `min_entrants` / `max_entrants` | optional | Filter by average event entrants. |
+| `min_max_event_entrants` | optional | Require the player’s largest event to clear a threshold. |
+| `min_large_event_share` | optional | Require at least this fraction of events to be “large” (`0.0–1.0`). |
+| `start_after` | optional | ISO date (`YYYY-MM-DD`) that the player’s latest event must be on/after. |
+
+When selecting by terms, the API returns HTTP 412 if multiple persisted series match and `allow_multi=false`. Set `allow_multi=true` or pass an explicit `series_key`.
 
 #### Query parameters for `/search`
 
@@ -229,7 +251,11 @@ Response shape:
 ```json
 {
   "state": "GA",
-  "character": "Marth",
+  "months_back": 3,
+  "all_time": false,
+  "videogame_id": 1386,
+  "series_key": "ga-battle-city-series-key",
+  "resolved_label": "battle city",
   "count": 50,
   "results": [
     {
@@ -248,7 +274,19 @@ Response shape:
 }
 ```
 
-The `results` array mirrors the DataFrame printed by `run_report.py`, so every column is available for plotting in notebooks or front-ends. The most useful axes for dot plots are:
+When `allow_multi=true` and more than one series matches, the response swaps single-series metadata for plural fields:
+
+- `series_key`/`resolved_label` are omitted.
+- `series_keys` and `resolved_labels` are included.
+- Each row in `results` still includes `series_key`, `series_name_term`, `series_slug_term`, and `series_label`.
+
+#### Field availability for rendering
+
+`/search` returns the full computed player schema. `/precomputed` and `/precomputed_series` are cache-backed and can omit fields not persisted in your current SQLite snapshot, especially if rows were precomputed with older code. Front-end renderers should treat at least these columns as optional and default-safe: `sets_played`, `events_played`, `win_rate`, `upset_rate`, `character_usage_rate`, `avg_seed_delta`, and `state`.
+
+If you hit HTTP 412 for missing filter columns, re-run `precompute_metrics.py` with current code to backfill required metadata in `player_metrics` / `player_series_metrics`.
+
+The `results` array closely mirrors the DataFrame printed by `run_report.py` (subject to the cache-backed field availability notes above), so the most useful axes for dot plots are:
 
 - `weighted_win_rate` – combines win rate, event size, and recency. Higher means stronger recent performance.
 - `opponent_strength` – average of `1/opponent_seed` (or placement) to approximate strength of schedule.
