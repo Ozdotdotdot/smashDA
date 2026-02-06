@@ -63,6 +63,11 @@ Most endpoints accept a rolling time window.
 
 Filters can be applied on home state, average entrants, max event entrants, large event share, and most recent event timestamp.
 
+### Tournament Lookup Notes
+
+- `/tournaments` and `/tournaments/by-slug` are generally lower intensity than `/search` endpoints because they return tournament metadata only.
+- `/tournaments/by-slug` fetches tournament details by slug/URL and should not be treated as precomputed-player-metrics cache access.
+
 ### High-Intensity Warnings
 
 Endpoints under `/search` are **High-Intensity** and should be used sparingly:
@@ -71,6 +76,8 @@ Endpoints under `/search` are **High-Intensity** and should be used sparingly:
 - `/search/by-slug`
 
 These endpoints trigger live pipeline computation and may be slow.
+
+⚠️ **IMPORTANT:** `/search/by-slug` is often misused for simple tournament lookups. Use it ONLY when you need player analytics/statistics for specific tournaments. For basic tournament information (dates, location, attendance), use `/tournaments` or `/tournaments/by-slug` instead - these are low-intensity and much faster.
 
 ---
 
@@ -600,8 +607,9 @@ Top-level:
 ## Recommended Default Workflow
 
 1. Use `/precomputed` for general player ranking or performance questions.
-2. Use `/precomputed_series` if the user asks for a specific series (e.g., “Battle City”).
-3. Only use `/search` or `/search/by-slug` when a user explicitly requests raw or ultra-specific data not covered by precomputed metrics.
+2. Use `/precomputed_series` if the user asks for a specific series (e.g., "Battle City").
+3. For tournament searches, use `/tournaments` with `tournament_contains` FIRST to discover exact slugs and handle ambiguous names.
+4. Only use `/search` or `/search/by-slug` when a user explicitly requests raw or ultra-specific data not covered by precomputed metrics.
 
 ## Common Tasks
 
@@ -624,3 +632,139 @@ Use `/tournaments/by-slug` with a slug like `tournament/genesis-9`.
 ### Rare: compute live metrics for custom criteria
 
 Use `/search` or `/search/by-slug` only when the user explicitly requests live computation or raw filtering that precomputed endpoints cannot satisfy.
+
+---
+
+## Tournament Search Strategy
+
+### Recommended Workflow for Tournament Queries
+
+When a user asks about tournaments, follow this three-step approach to minimize API load and maximize efficiency:
+
+**Step 1: Use `/tournaments` with `tournament_contains` to discover tournaments**
+- This is a **low-intensity** operation that helps identify exact slugs
+- Handles ambiguous names gracefully by returning all matches
+- Example (illustrative): searching for "4o4" may return both "4o4 weeklies" and "4o4 monthlies"
+- Example (illustrative): searching for "battle city" may return a single matching series
+- **This should be your FIRST step** for any tournament name search
+
+**Step 2: Use `/tournaments/by-slug` for basic tournament information**
+- Once you have an exact slug from Step 1, use this for tournament details
+- Returns dates, location, attendance, and basic metadata
+- Still **low-intensity** compared to analytics endpoints
+- Use this when the user asks: "When was X tournament?", "Where was X held?", "How many people attended?"
+
+**Step 3: Only use `/search/by-slug` if player analytics are needed**
+- This is **HIGH-INTENSITY** and triggers full pipeline computation
+- Use ONLY when the user explicitly needs player metrics/statistics for that specific tournament
+- Example: "Show me player stats for Genesis 9" → requires `/search/by-slug`
+- Example: "Who performed best at Battle City?" → requires `/search/by-slug`
+- **Do NOT use** for simple tournament info (use Step 2 instead)
+
+### Tournament Name Resolution Strategy
+
+When a user asks about a tournament by name, use this two-step resolution approach:
+
+**Example 1: Ambiguous tournament name**
+```
+User: "Show me stats from 4o4"
+
+1. Call: GET /tournaments?state=GA&tournament_contains=4o4
+2. Response: Multiple matches ["4o4 Weeklies", "4o4 Monthlies"]
+3. Action: Present options to user and ask for clarification
+4. Once clarified: Use appropriate endpoint based on what they need
+   - For series rankings: /precomputed_series
+   - For specific tournament analytics: /search/by-slug
+```
+
+**Example 2: Unique tournament name**
+```
+User: "Show me Battle City rankings"
+
+1. Call: GET /tournaments?state=GA&tournament_contains=battle%20city
+2. Response: Single match "Battle City"
+3. Action: Extract series information or slug
+4. Call: GET /precomputed_series?state=GA&tournament_contains=battle%20city
+   (Returns rankings for the Battle City series)
+```
+
+**Example 3: User has exact slug already**
+```
+User: "Tell me about tournament/genesis-9"
+
+1. Call: GET /tournaments/by-slug?tournament_slug=tournament/genesis-9
+2. Response: Tournament details (date, location, attendance)
+3. If user asks for stats: GET /search/by-slug?tournament_slug=tournament/genesis-9
+```
+
+**Why this approach works:**
+- Using `tournament_contains` first prevents wasted high-intensity calls
+- Handles ambiguous tournament names gracefully with user feedback
+- Minimizes API load by using appropriate endpoint for each use case
+- Provides clear path from fuzzy search → exact match → analytics
+
+### Tournament Query Decision Tree
+
+Use this decision tree to determine which endpoint to call:
+
+**User asks: "Tell me about [tournament name]" or "When was [tournament]?"**
+```
+→ Use /tournaments with tournament_contains to find slug
+→ Use /tournaments/by-slug with the slug for details
+→ Do NOT use /search/by-slug (no analytics needed)
+```
+
+**User asks: "Who won [tournament]?" or "Show me player stats at [tournament]"**
+```
+→ Use /tournaments with tournament_contains to find slug
+→ Use /search/by-slug with the slug for analytics (HIGH-INTENSITY)
+```
+
+**User asks: "What tournaments happened recently in GA?"**
+```
+→ Use /tournaments with state filter and time window
+→ Optionally filter with tournament_contains if they mention a series name
+```
+
+**User asks: "Show me rankings for [tournament series]"**
+```
+→ Use /precomputed_series with tournament_contains
+→ This returns player rankings scoped to that series (low-intensity)
+→ Do NOT use /search/by-slug unless they want a specific tournament date
+```
+
+**User asks: "Show me all tournaments with 'weekly' in the name"**
+```
+→ Use /tournaments with tournament_contains=weekly
+→ Returns list of all matching tournaments
+```
+
+### Common Mistakes to Avoid
+
+❌ **Don't:** Use `/search/by-slug` for "When was Genesis 9?"
+✅ **Do:** Use `/tournaments/by-slug` instead
+
+❌ **Don't:** Use `/search/by-slug` without first checking `/tournaments` for the correct slug
+✅ **Do:** Use `/tournaments` with `tournament_contains` first when the name is ambiguous; if the user already provides an exact slug and wants analytics, call `/search/by-slug` directly
+
+❌ **Don't:** Guess tournament slugs when the user provides a name like "4o4"
+✅ **Do:** Use `/tournaments` with `tournament_contains` to discover all matching options
+
+❌ **Don't:** Use `/search` with `tournament_contains` when `/precomputed_series` can answer the question
+✅ **Do:** Default to `/precomputed_series` for series-based rankings
+
+---
+
+## Quick Reference: Endpoint Selection Guide
+
+| User Request | Endpoint to Use | Intensity | Why |
+|-------------|-----------------|-----------|-----|
+| "Top players in GA" | `/precomputed` | Low | Cached, pre-computed rankings |
+| "Best players at Battle City" | `/precomputed_series` | Low | Series-specific cached rankings |
+| "Find tournaments named 4o4" | `/tournaments` + `tournament_contains` | Low | Fuzzy search, returns all matches |
+| "When was Genesis 9?" | `/tournaments/by-slug` | Low | Basic metadata lookup |
+| "Player stats from Genesis 9" | `/search/by-slug` | **High** | Full analytics computation |
+| "Recent tournaments in GA" | `/tournaments` | Low | List with time filter |
+| "Custom filters not in precomputed" | `/search` | **High** | Live computation only |
+
+**Golden Rule:** Always prefer low-intensity endpoints unless the user explicitly needs analytics that only high-intensity endpoints can provide.
