@@ -107,6 +107,7 @@ Precomputed player metrics for a state and time window.
 
 - `state` (string, required) – Two-letter state/region code.
 - `months_back` (integer, optional, default `6`, range `1–24`).
+- `all_time` (boolean, optional, default `false`) – When `true`, returns the all-time precompute slice and overrides `months_back` to `0`.
 - `videogame_id` (integer, optional, default `1386` for Ultimate, `1` for Melee).
 - `character` (string, optional, default `"Marth"`).
 - `limit` (integer, optional, default `50`, range `0–500`). `0` returns all rows.
@@ -124,6 +125,7 @@ Top-level:
 - `state` (string)
 - `character` (string)
 - `months_back` (integer)
+- `all_time` (boolean)
 - `videogame_id` (integer)
 - `count` (integer)
 - `results` (array of `PrecomputedPlayerMetric`)
@@ -134,12 +136,16 @@ Top-level:
 - `gamer_tag` (string)
 - `weighted_win_rate` (number | null)
 - `opponent_strength` (number | null)
+- `avg_seed_delta` (number | null)
+- `upset_rate` (number | null)
+- `activity_score` (number | null)
 - `home_state` (string | null)
 - `home_state_inferred` (boolean)
 - `avg_event_entrants` (number | null)
 - `max_event_entrants` (number | null)
 - `large_event_share` (number | null)
 - `latest_event_start` (integer | null) – Unix timestamp (seconds).
+- `computed_at` (integer | null) – Unix timestamp when metrics were precomputed.
 
 ### Example Response
 
@@ -177,12 +183,13 @@ Precomputed metrics scoped to a specific tournament series in a state.
 
 - `state` (string, required)
 - `months_back` (integer, optional, default `6`, range `1–24`)
+- `all_time` (boolean, optional, default `false`) – When `true`, returns the all-time precompute slice and overrides `months_back` to `0`.
 - `videogame_id` (integer, optional, default `1386`)
 - `window_offset` (integer, optional, default `0`)
 - `window_size` (integer, optional)
 - `series_key` (string, optional) – Exact series key.
-- `tournament_contains` (string, repeatable) – Name term to resolve a series key.
-- `tournament_slug_contains` (string, repeatable) – Slug term to resolve a series key.
+- `tournament_contains` (string, repeatable) – Name term to resolve a series key. **Note:** only the first value is used for series matching.
+- `tournament_slug_contains` (string, repeatable) – Slug term to resolve a series key. **Note:** only the first value is used for series matching.
 - `allow_multi` (boolean, optional, default `false`) – If true, returns multiple series matches.
 - `limit` (integer, optional, default `50`, range `0–500`)
 - `filter_state` (string, repeatable)
@@ -198,6 +205,7 @@ Top-level:
 
 - `state` (string)
 - `months_back` (integer)
+- `all_time` (boolean)
 - `videogame_id` (integer)
 - `count` (integer)
 - `results` (array of `PrecomputedSeriesMetric`)
@@ -216,12 +224,16 @@ Top-level:
 - `gamer_tag` (string)
 - `weighted_win_rate` (number | null)
 - `opponent_strength` (number | null)
+- `avg_seed_delta` (number | null)
+- `upset_rate` (number | null)
+- `activity_score` (number | null)
 - `home_state` (string | null)
 - `home_state_inferred` (boolean)
 - `avg_event_entrants` (number | null)
 - `max_event_entrants` (number | null)
 - `large_event_share` (number | null)
 - `latest_event_start` (integer | null)
+- `computed_at` (integer | null) – Unix timestamp when metrics were precomputed.
 - `series_key` (string)
 - `series_name_term` (string | null)
 - `series_slug_term` (string | null)
@@ -338,7 +350,11 @@ Lookup tournaments by exact slug or full start.gg URL.
 
 ### Query Parameters
 
-- `tournament_slug` (string, repeatable, required) – slug or start.gg URL.
+- `tournament_slug` (string, repeatable, required) – slug or start.gg URL. Accepts any of these formats:
+  - Slug: `tournament/genesis-9`
+  - Full URL: `https://start.gg/tournament/genesis-9`
+  - URL with extra path/params: `https://start.gg/tournament/genesis-9/event/melee-singles?foo=bar` (extra segments and query params are stripped)
+  - Inputs that don't resolve to a `tournament/...` slug are returned in the `invalid` array.
 
 ### Response Schema
 
@@ -509,7 +525,7 @@ Compute player metrics for one or more specific tournament slugs.
 
 ### Query Parameters
 
-- `tournament_slug` (string, repeatable, required) – slug or start.gg URL.
+- `tournament_slug` (string, repeatable, required) – slug or start.gg URL. Same format rules as `/tournaments/by-slug` (accepts full URLs, strips extra path segments and query params).
 - `character` (string, optional, default `"Marth"`)
 - `videogame_id` (integer, optional, default `1386`)
 - `assume_target_main` (boolean, optional, default `false`)
@@ -670,7 +686,7 @@ When a user asks about a tournament by name, use this two-step resolution approa
 User: "Show me stats from 4o4"
 
 1. Call: GET /tournaments?state=GA&tournament_contains=4o4
-2. Response: Multiple matches ["4o4 Weeklies", "4o4 Monthlies"]
+2. Response (example): Multiple matches ["4o4 Weeklies", "4o4 Monthlies"]
 3. Action: Present options to user and ask for clarification
 4. Once clarified: Use appropriate endpoint based on what they need
    - For series rankings: /precomputed_series
@@ -682,7 +698,7 @@ User: "Show me stats from 4o4"
 User: "Show me Battle City rankings"
 
 1. Call: GET /tournaments?state=GA&tournament_contains=battle%20city
-2. Response: Single match "Battle City"
+2. Response (example): Single match "Battle City"
 3. Action: Extract series information or slug
 4. Call: GET /precomputed_series?state=GA&tournament_contains=battle%20city
    (Returns rankings for the Battle City series)
@@ -693,7 +709,7 @@ User: "Show me Battle City rankings"
 User: "Tell me about tournament/genesis-9"
 
 1. Call: GET /tournaments/by-slug?tournament_slug=tournament/genesis-9
-2. Response: Tournament details (date, location, attendance)
+2. Response (example): Tournament details (date, location, attendance)
 3. If user asks for stats: GET /search/by-slug?tournament_slug=tournament/genesis-9
 ```
 
