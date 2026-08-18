@@ -50,28 +50,33 @@ cd "$BASE_DIR"
 # Point to the venv python explicitly
 VENV_PYTHON="$BASE_DIR/.venv/bin/python"
 
+store_args=()
+if [[ -n "${SMASHCC_DB_PATH:-}" ]]; then
+  store_args=(--store-path "$SMASHCC_DB_PATH")
+fi
+
 start_epoch=$(date +%s)
 
 log "Using Python: $VENV_PYTHON"
 run_command "$VENV_PYTHON" --version
 
 log "Running precompute_metrics.py for all states (1 months back)..."
-run_command "$VENV_PYTHON" precompute_metrics.py --all-states --months-back 1 --offline-only
+run_command "$VENV_PYTHON" precompute_metrics.py "${store_args[@]}" --all-states --months-back 1 --offline-only
 
 log "Running precompute_metrics.py for all states (1 months back, auto-series)..."
-run_command "$VENV_PYTHON" precompute_metrics.py --all-states --months-back 1 --auto-series --offline-only
+run_command "$VENV_PYTHON" precompute_metrics.py "${store_args[@]}" --all-states --months-back 1 --auto-series --offline-only
 
 log "Running precompute_metrics.py for all states (3 months back)..."
-run_command "$VENV_PYTHON" precompute_metrics.py --all-states --months-back 3 --offline-only
+run_command "$VENV_PYTHON" precompute_metrics.py "${store_args[@]}" --all-states --months-back 3 --offline-only
 
 log "Running precompute_metrics.py for all states (3 months back, auto-series)..."
-run_command "$VENV_PYTHON" precompute_metrics.py --all-states --months-back 3 --auto-series --offline-only
+run_command "$VENV_PYTHON" precompute_metrics.py "${store_args[@]}" --all-states --months-back 3 --auto-series --offline-only
 
 log "Running precompute_metrics.py for all states (all-time)..."
-run_command "$VENV_PYTHON" precompute_metrics.py --all-states --all-time --offline-only
+run_command "$VENV_PYTHON" precompute_metrics.py "${store_args[@]}" --all-states --all-time --offline-only
 
 log "Running precompute_metrics.py for all states (all-time, auto-series)..."
-run_command "$VENV_PYTHON" precompute_metrics.py --all-states --all-time --auto-series --offline-only
+run_command "$VENV_PYTHON" precompute_metrics.py "${store_args[@]}" --all-states --all-time --auto-series --offline-only
 
 end_epoch=$(date +%s)
 duration=$((end_epoch - start_epoch))
