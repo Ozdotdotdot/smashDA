@@ -29,7 +29,8 @@ STARTGG_API_URL = "https://api.start.gg/gql/alpha"
 
 def _default_cache_dir() -> Path:
     """Return the default on-disk cache path."""
-    return Path(".cache") / "startgg"
+    override = os.getenv("SMASHCC_CACHE_DIR")
+    return Path(override).expanduser() if override else Path(".cache") / "startgg"
 
 
 def _make_cache_key(query: str, variables: Optional[Dict]) -> str:

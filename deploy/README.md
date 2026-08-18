@@ -5,6 +5,7 @@ The production layout keeps code, mutable data, secrets, logs, and backups separ
 - `/opt/smashDA`: application checkout and virtual environment
 - `/var/lib/smashapi/smash.db`: authoritative SQLite database
 - `/var/lib/smashapi/reports`: generated per-state CSV reports
+- `/var/lib/smashapi/cache/startgg`: start.gg response cache and stale archives
 - `/etc/smashapi/smashapi.env`: root-owned secrets and configuration
 - `/var/log/smashapi`: refresh logs
 - `/var/backups/smashapi`: timestamped, integrity-checked weekly backups
