@@ -42,8 +42,9 @@ run_command() {
   fi
 }
 
-# Absolute path to the repo root
-BASE_DIR="$HOME/code-repos/smashDA"
+# Resolve the repository root from this script so deployments do not depend on a
+# particular user's home directory.
+BASE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$BASE_DIR"
 
 # Point to the venv python explicitly

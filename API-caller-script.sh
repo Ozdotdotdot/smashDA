@@ -47,6 +47,9 @@ states=(
   MO MT NE NV NH NJ NM NY NC ND OH OK OR PA RI SC SD TN TX UT VT VA WA WV WI WY
 )
 
+report_output_dir="${SMASHCC_REPORT_DIR:-.}"
+mkdir -p "$report_output_dir"
+
 start_epoch=$(date +%s)
 processed_states=()
 
@@ -56,7 +59,7 @@ for state in "${states[@]}"; do
     --months-back 3 \
     --min-entrants 32 \
     --filter-state "${state}" \
-    --output "cheerio_${state}.csv"
+    --output "$report_output_dir/cheerio_${state}.csv"
   log "Finished ${state} at $(date)"
   log
   processed_states+=("$state")

@@ -1,0 +1,15 @@
+[Unit]
+Description=Create a consistent smash.watch database backup
+
+[Service]
+Type=oneshot
+User=smashapi
+Group=smashapi
+EnvironmentFile=/etc/smashapi/smashapi.env
+ExecStart=/opt/smashDA/deploy/backup.sh
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/smashapi /var/backups/smashapi
+

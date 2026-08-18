@@ -1,0 +1,18 @@
+[Unit]
+Description=Refresh smash.watch tournament data and precomputed metrics
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=smashapi
+Group=smashapi
+WorkingDirectory=/opt/smashDA
+EnvironmentFile=/etc/smashapi/smashapi.env
+ExecStart=/opt/smashDA/deploy/refresh.sh
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/smashapi /var/log/smashapi
+

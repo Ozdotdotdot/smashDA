@@ -1,0 +1,11 @@
+[Unit]
+Description=Weekly smash.watch database backup
+
+[Timer]
+OnCalendar=Sun *-*-* 07:00:00 America/New_York
+Persistent=true
+RandomizedDelaySec=10m
+Unit=smashapi-backup.service
+
+[Install]
+WantedBy=timers.target
