@@ -1,0 +1,11 @@
+[Unit]
+Description=Nightly smash.watch database refresh
+
+[Timer]
+OnCalendar=*-*-* 04:00:00 America/New_York
+Persistent=true
+RandomizedDelaySec=5m
+Unit=smashapi-refresh.service
+
+[Install]
+WantedBy=timers.target

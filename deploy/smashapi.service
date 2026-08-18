@@ -1,0 +1,23 @@
+[Unit]
+Description=smash.watch analytics API
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=smashapi
+Group=smashapi
+WorkingDirectory=/opt/smashDA
+EnvironmentFile=/etc/smashapi/smashapi.env
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/opt/smashDA/.venv/bin/uvicorn api:app --host 127.0.0.1 --port 8000
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/smashapi /var/log/smashapi
+
+[Install]
+WantedBy=multi-user.target
